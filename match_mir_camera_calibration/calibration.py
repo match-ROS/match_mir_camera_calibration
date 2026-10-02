@@ -25,7 +25,21 @@ class CalibrationError(ValueError):
 def observations(measurements, config):
     result = []
     frames = {}
+    groups = []
     for measurement in measurements:
+        if not measurement['images']:
+            continue
+        first = measurement['images'][0]
+        reference = inverse(transform(first['pose_b'])) @ transform(first['pose_a'])
+        group_id = None
+        for group_pose, group_name in groups:
+            delta, angle = distance(group_pose, reference)
+            if delta < 0.03 and angle < np.radians(3.0):
+                group_id = group_name
+                break
+        if group_id is None:
+            group_id = measurement['id']
+            groups.append((reference, group_id))
         for image in measurement['images']:
             side = image['camera']
             if side not in SIDES:
@@ -45,7 +59,7 @@ def observations(measurements, config):
                     raise CalibrationError('Invalid image corners')
                 result.append({'side': side, 'marker': name, 'corners': corners,
                                'k': k, 'd': d, 'relative': relative,
-                               'waypoint': measurement['id'],
+                               'waypoint': group_id,
                                'candidates': detection.get('pnp_candidates') or hypotheses(
                                    corners, config['markers'][name]['length_m'], k, d)})
     if len(set(frames.values())) != 2:
@@ -208,6 +222,7 @@ def solve_dataset(path, initial_guesses=None, starts=4):
     problem, x, report = fit(config, obs, guesses, starts)
     ts = problem.transforms(x)
     report.update(coverage=coverage, accepted_measurements=len(measurements),
+                  distinct_poses=len(ids),
                   validation=validation, validation_pose_ids=sorted(held),
                   validation_training_rank=validation_fit['rank'],
                   notes=['Absolute height is conditioned on the supplied marker height.',
@@ -248,7 +263,7 @@ def main(argv=None):
         result = solve_dataset(args.session_dir, guesses, args.starts)
         print(json.dumps({'quality': result['quality'], 'validation': result['report']['validation'],
                           'output': str(Path(args.session_dir).expanduser()/'calibration.yaml')}, indent=2))
-    except (ValueError, OSError, KeyError, cv2.error) as exc:
+    except (ValueError, TypeError, OSError, KeyError, np.linalg.LinAlgError, cv2.error) as exc:
         try:
             root = Path(args.session_dir).expanduser()
             if root.is_dir():

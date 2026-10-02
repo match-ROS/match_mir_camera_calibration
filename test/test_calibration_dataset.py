@@ -6,7 +6,7 @@ import pytest
 from scipy.spatial.transform import Rotation
 
 from match_mir_camera_calibration.calibration import (
-    CalibrationError, JointProblem, check_coverage, fit, solve_dataset,
+    CalibrationError, check_coverage, fit, observations, solve_dataset,
 )
 from match_mir_camera_calibration.dataset import Dataset, load_dataset
 from match_mir_camera_calibration.geometry import distance, inverse, marker_points, pack, transform, values
@@ -82,6 +82,14 @@ def test_disconnected_observations_are_rejected(config):
     disconnected = [o for o in obs if (o['side'], o['marker']) in [('left', 'rear_left'), ('right', 'rear_right')]]
     with pytest.raises(CalibrationError, match='Disconnected'):
         check_coverage(disconnected)
+
+
+def test_repeated_same_pose_cannot_leak_into_validation(config):
+    _, _, _, records = synthetic(config)
+    repeated = deepcopy(records[0])
+    repeated['id'] = '999999'
+    obs, _ = observations([records[0], repeated], config)
+    assert {o['waypoint'] for o in obs} == {'000000'}
 
 
 def test_translation_only_motion_is_underdetermined(config):

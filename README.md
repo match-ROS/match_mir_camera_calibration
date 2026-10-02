@@ -1,7 +1,7 @@
 # MiR camera and MuR marker calibration
 
 Eigenständige ROS-2-Jazzy-GUI auf Basis von `MurBaseGui`, parallel zur
-Mocap-GUI. Standardmäßig fährt MuR620a mit zwei hinteren ArUCo-Markern vor
+Mocap-GUI. Standardmäßig fährt MuR620a mit zwei hinteren ArUco-Markern vor
 den beiden RGB-Kameras der stehenden MuR620b. Rohe Qualisys-Posen liefern
 die bekannte relative Roboterbewegung. Eine gemeinsame Offline-Optimierung
 bestimmt beide Kamera- und beide Markertransformationen relativ zu `base_link`.
@@ -171,7 +171,10 @@ Bei Bodenfahrten bleibt ein gemeinsamer Höhenversatz unbestimmt. Die gemessene
 Markerhöhe setzt die Höhenreferenz. B muss nicht fahren; unterschiedliche
 Positionen und Drehwinkel der A liefern die relative Anregung.
 
-Alle Bilder jeder fünften Messpose bleiben beim Validierungsfit zurückgehalten.
+Wiederholungen nahezu identischer relativer Posen (unter 3 cm und 3 Grad)
+werden gemeinsam gruppiert. Alle Bilder jeder fünften Posegruppe bleiben beim
+Validierungsfit zurückgehalten; Wiederholungen gelangen damit nicht zugleich
+in Training und Validierung.
 Der Bericht zeigt Pixel-Reprojektionsfehler und Abweichungen bildbasierter
 relativer Roboterposen gegenüber Mocap. Die PnP-Hypothese für die Poseprüfung
 wird anhand ihres eigenen Bildfehlers ausgewählt; planare Mehrdeutigkeit wird

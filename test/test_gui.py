@@ -4,6 +4,7 @@ os.environ['QT_QPA_PLATFORM'] = 'offscreen'
 import pytest
 pytest.importorskip('rclpy')
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtTest import QTest
 from match_mir_camera_calibration import gui
 
 
@@ -54,6 +55,14 @@ def test_gui_form_roundtrip_preserves_plan_edits_and_renders(config, monkeypatch
         assert module.table.item(0, 0).text() == '2.2'
         module.edit_waypoints()
         assert module.monitor.edited[0][0] == 2.2
+        module._status(data)  # Old status must not acknowledge the queued edit.
+        assert module.pending_edit is not None
+        assert not module.buttons['start'].isEnabled()
+        assert module.table.item(0, 0).text() == '2.2'
+        accepted = dict(data, plan=[{'pose': module.monitor.edited[0], 'path': [[2., 0.], [2.2, 0.]]}])
+        module._status(accepted)
+        assert module.pending_edit is None
+        assert module.buttons['start'].isEnabled()
         module.top_view.config = config
         module.top_view.status = data
         canvas = QtGui.QPixmap(640, 480)
@@ -62,3 +71,29 @@ def test_gui_form_roundtrip_preserves_plan_edits_and_renders(config, monkeypatch
     finally:
         module.on_shutdown()
         context.window.close()
+
+
+def test_real_base_gui_starts_and_closes_without_hardware(tmp_path, monkeypatch):
+    from match_mur_gui import base_gui
+    monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path/'ros_logs'))
+    monkeypatch.setattr(base_gui, 'GUI_LOG_DIR', str(tmp_path/'gui_logs'))
+    monkeypatch.setattr(base_gui, 'GUI_LATEST_LOG', str(tmp_path/'gui_logs/latest.log'))
+    # Closing the shared base GUI normally performs remote process cleanup.
+    # This test explicitly excludes all SSH and robot actions.
+    monkeypatch.setattr(base_gui.MurBaseGui, 'stop_managed_processes',
+                        lambda self: self.stop_module_motion_like_actions())
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    module = gui.CalibrationModule()
+    window = base_gui.MurBaseGui(modules=[module], window_title='Calibration smoke test')
+    try:
+        window.show()
+        QTest.qWait(250)
+        assert window.selected_robots() == ['mur620a', 'mur620b']
+        assert not window.arm_r.isChecked() and not window.arm_l.isChecked()
+        assert window.mir_enabled_check.isChecked() and window.mir_camera_check.isChecked()
+        assert not window.processes
+        assert module.backend_config is None
+        assert window.grab().save(str(tmp_path/'gui.png'))
+    finally:
+        window.close()
+        app.processEvents()

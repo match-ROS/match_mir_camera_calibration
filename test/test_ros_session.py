@@ -120,6 +120,12 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
         spin_until(lambda: session.dataset.pending is None)
         rejected = json.loads((session.dataset.path/'measurements/000001/measurement.json').read_text())
         assert not rejected['accepted'] and 'timestamp' in rejected['reason']
+        # The watchdog must run even when the ROS executor itself is blocked.
+        spin_until(lambda: len(session.camera_seen) == 2)
+        assert call('capture').success
+        time.sleep(.3)
+        assert session.watchdog_tripped.is_set()
+        spin_until(lambda: session.controller.state == 'FAULT')
         assert commands and all(v == 0. and w == 0. for v, w in commands)
     finally:
         if session:

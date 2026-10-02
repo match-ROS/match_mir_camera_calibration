@@ -222,9 +222,10 @@ class CalibrationSession(Node):
         plain = f"/{self.c['target_robot']}/cmd_vel"
         if self.count_subscribers(stamped) == 0:
             raise ValueError('No MiR cmd_vel_stamped subscriber; start MiR hardware first')
-        others = [p for p in self.get_publishers_info_by_topic(stamped)
+        publishers = self.get_publishers_info_by_topic(stamped)
+        others = [p for p in publishers
                   if p.node_name != self.get_name() or p.node_namespace != self.get_namespace()]
-        if others or self.count_publishers(plain):
+        if len(publishers) != 1 or others or self.count_publishers(plain):
             raise ValueError('Other cmd_vel publishers discovered; stop/restart competing jog/controller nodes')
 
     def _initial_guesses(self):

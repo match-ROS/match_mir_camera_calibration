@@ -29,12 +29,16 @@ def hypotheses(corners, length, k, d):
     result = cv2.solvePnPGeneric(points, np.asarray(corners, float), k, d, flags=cv2.SOLVEPNP_IPPE_SQUARE)
     poses = []
     for rvec, tvec in zip(result[1], result[2]):
+        if not np.all(np.isfinite(rvec)) or not np.all(np.isfinite(tvec)):
+            continue
         rotation = cv2.Rodrigues(rvec)[0]
         xyz = points @ rotation.T + tvec.reshape(3)
         if np.any(xyz[:, 2] <= 0):
             continue
         projected = cv2.projectPoints(points, rvec, tvec, k, d)[0].reshape(4, 2)
         error = float(np.sqrt(np.mean(np.sum((projected-corners)**2, axis=1))))
+        if not np.isfinite(error):
+            continue
         t = np.eye(4)
         t[:3, :3], t[:3, 3] = rotation, tvec.reshape(3)
         poses.append({'transform': values(t), 'reprojection_px': error})

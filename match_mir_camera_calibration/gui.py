@@ -157,6 +157,18 @@ class TopView(QtWidgets.QWidget):
         p1, p2 = point(lo), point(hi)
         painter.setPen(QtGui.QPen(QtGui.QColor('#dddddd'), 2))
         painter.drawRect(QtCore.QRectF(p1, p2).normalized())
+        observer = self.status.get('mocap', {}).get(self.config['observer_robot'], {}).get('pose')
+        if observer:
+            from .planner import Planner, PlanningError
+            try:
+                planner = Planner(self.config, observer[:2])
+                painter.setPen(QtGui.QPen(QtGui.QColor('#66bbcc'), 1, QtCore.Qt.DashLine))
+                painter.drawRect(QtCore.QRectF(point(planner.lower), point(planner.upper)).normalized())
+                painter.setPen(QtGui.QPen(QtGui.QColor('#ec7777'), 1, QtCore.Qt.DashLine))
+                radius = planner.exclusion*scale
+                painter.drawEllipse(point(observer[:2]), radius, radius)
+            except PlanningError:
+                pass
         for index, item in enumerate(self.status.get('plan', [])):
             painter.setPen(QtGui.QPen(QtGui.QColor('#689bce'), 1))
             path = item['path']
@@ -191,6 +203,7 @@ class CalibrationModule(MurGuiModule):
         self.config_file = None
         self.plan_signature = None
         self.backend_plan_signature = None
+        self.pending_edit = None
         self.last_dataset = None
         self._temp_paths = []
         self.raw_poses = {}
@@ -468,6 +481,7 @@ class CalibrationModule(MurGuiModule):
                     if not process.waitForFinished(1500):
                         raise ValueError('Backend did not stop; configuration reload cancelled')
                 self.backend_status, self.plan_signature, self.backend_plan_signature = {}, None, None
+                self.pending_edit = None
                 self.backend_config = config
                 self.top_view.config = config
                 command = setup_prefix() + 'exec python3 -m match_mir_camera_calibration.session_node --ros-args ' + \
@@ -479,6 +493,8 @@ class CalibrationModule(MurGuiModule):
             return
         if action in ('start', 'capture', 'verify'):
             try:
+                if self.pending_edit is not None:
+                    raise ValueError('Wait for the backend to accept and preview the edited plan')
                 if self._config() != self.backend_config:
                     raise ValueError('Configuration changed; load the backend again before capture/motion')
                 if action in ('start', 'verify') and self._table_waypoints() != self.plan_signature:
@@ -516,6 +532,7 @@ class CalibrationModule(MurGuiModule):
     def edit_waypoints(self):
         try:
             waypoints = self._table_waypoints()
+            self.pending_edit = [list(p[:2])+[math.atan2(math.sin(p[2]), math.cos(p[2]))] for p in waypoints]
             self.plan_signature = None
             self.backend_plan_signature = None
             self.monitor.edit(waypoints)
@@ -526,7 +543,9 @@ class CalibrationModule(MurGuiModule):
         self.backend_status, self.status_at = data, time.monotonic()
         self.status_label.setText(f"{data['state']} · {data['reason']} · Messpose {data['index']+1}/{len(data['plan'])} · Bilder L/R {data['counts']}")
         signature = [item['pose'] for item in data['plan']]
-        if signature != self.backend_plan_signature and data['state'] == 'READY':
+        if self.pending_edit is not None and len(signature) == len(self.pending_edit) and np.allclose(signature, self.pending_edit, rtol=0, atol=1e-8):
+            self.pending_edit = None
+        if signature != self.backend_plan_signature and data['state'] == 'READY' and self.pending_edit is None:
             self.table.setRowCount(len(signature))
             for row, pose in enumerate(signature):
                 for col, v in enumerate([pose[0], pose[1], math.degrees(pose[2])]):
@@ -548,9 +567,9 @@ class CalibrationModule(MurGuiModule):
         self.solve_button.setEnabled(not active)
         for action in ('load', 'prepare', 'capture'):
             self.buttons[action].setEnabled(not active)
-        self.buttons['start'].setEnabled(data['state'] in ('READY', 'PAUSED'))
+        self.buttons['start'].setEnabled(data['state'] in ('READY', 'PAUSED') and self.pending_edit is None)
         self.buttons['pause'].setEnabled(active)
-        self.buttons['verify'].setEnabled(data['state'] == 'READY')
+        self.buttons['verify'].setEnabled(data['state'] == 'READY' and self.pending_edit is None)
         # Prevent the inherited GUI from introducing a second motion command.
         for button in self.context.window.findChildren(QtWidgets.QPushButton):
             if self.panel.isAncestorOf(button):
@@ -605,10 +624,13 @@ class CalibrationModule(MurGuiModule):
             current = yaml.safe_load(self.editor.toPlainText())
             guess_path = self._temporary_config(current.get('camera_initial_guesses', {}))
             command = setup_prefix()+'exec python3 -m match_mir_camera_calibration.calibration '+shlex.quote(str(root))+' --initial-guesses '+shlex.quote(guess_path)
-            def finished(*args):
+            def finished(code, process_status):
                 report = root/'quality_report.json'
                 if report.exists():
-                    self.result_text.setPlainText(report.read_text())
+                    prefix = '' if code == 0 else f'Auswertung fehlgeschlagen (Exit {code}). Bericht:\n'
+                    self.result_text.setPlainText(prefix+report.read_text())
+                else:
+                    self.result_text.setPlainText(f'Keine Auswertung geschrieben (Exit {code}); Prozesslog prüfen.')
                 self.solve_button.setEnabled(True)
             self.solve_button.setEnabled(False)
             self.context.start_process('mir_calibration_solver', command, on_finished=finished)
