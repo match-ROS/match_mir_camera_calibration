@@ -1,0 +1,42 @@
+# Required physical values are intentionally blank. All lengths are metres.
+target_robot: mur620a
+observer_robot: mur620b
+dictionary: DICT_4X4_250  # Select the dictionary actually used by your printouts.
+markers:
+  rear_left: {id: null, length_m: null}
+  rear_right: {id: null, length_m: null}
+height_anchor: {marker: rear_left, z_m: null}
+# Outer FREE floor rectangle in the Qualisys 'mocap' coordinate system.
+bounds: {x_min: null, x_max: null, y_min: null, y_max: null}
+# Circumradii about base_link, including the complete stowed robot/arms.
+target_radius_m: null
+observer_radius_m: null
+margin_m: 0.20
+grid: {nx: 3, ny: 3, yaw_offsets_deg: [-20.0, 0.0, 20.0]}
+planner_resolution_m: 0.10
+max_linear_mps: 0.05
+max_angular_rps: 0.10
+linear_acceleration_mps2: 0.05
+angular_acceleration_rps2: 0.10
+reaction_time_sec: 0.50
+mocap_timeout_sec: 0.20
+heartbeat_timeout_sec: 0.75
+image_max_age_sec: 1.0
+settle_sec: 2.0
+still_translation_m: 0.003
+still_rotation_deg: 0.3
+position_tolerance_m: 0.015
+yaw_tolerance_deg: 1.0
+observer_translation_tolerance_m: 0.015
+observer_rotation_tolerance_deg: 1.0
+frames_per_camera: 5
+capture_timeout_sec: 15.0
+segment_timeout_sec: 180.0
+motion_enabled: false
+boundary_verified: false
+exclusive_control_confirmed: false
+arms_stowed_confirmed: false
+output_dir: ~/mir_camera_calibration_sessions
+# Optional initial guesses, ONLY used by the offline solver. Prefer live TF.
+# Each transform is [x,y,z,qx,qy,qz,qw], base_link -> camera optical frame.
+camera_initial_guesses: {}
