@@ -39,8 +39,9 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
    **Start Hardware**. Bestehendes Mocap weiterverwenden oder **Mocap-Bridge
    starten** wählen. Eine eigene Bridge publiziert nur Rohdaten, ohne Map-/Roboter-TF.
 2. Pflichtfelder im Tab **Konfiguration** eintragen. Das Muster
-   [config/session.yaml](config/session.yaml) lässt physische Werte absichtlich
-   leer. Für erweiterte Einstellungen YAML bearbeiten und anschließend
+   [config/session.yaml](config/session.yaml) enthält für beide Marker bereits
+   die gemessene Kantenlänge von **0,16 m**; weitere physische Pflichtwerte sind
+   noch leer. Für erweiterte Einstellungen YAML bearbeiten und anschließend
    **YAML in die Formularfelder übernehmen** wählen.
 3. **Backend laden**. Beide Bilder mit Marker-Overlays prüfen. MiR- und PC-Uhren
    müssen ausreichend synchronisiert sein: Bilder älter als eine Sekunde,
@@ -74,6 +75,9 @@ dessen Prozess beenden oder die GUI neu starten.
 
 - Dictionary, unterschiedliche IDs und tatsächliche schwarze Außenkantenlängen
   der Printouts eintragen; den weißen Druckrand nicht zur Länge zählen.
+  Die Länge des gesamten schwarzen Quadrats einschließlich Rahmen ist gemeint,
+  nicht die Rahmenbreite. Für beide vorhandenen Marker sind **16 cm = 0,16 m**
+  als Standard vorbelegt.
 - `height_anchor.z_m` ist die Höhe des Markermittelpunkts **im `base_link` der A**,
   nicht automatisch die Höhe über dem Boden.
 - Die Konturradien umfassen den kompletten Roboter inklusive abgestellter Arme,

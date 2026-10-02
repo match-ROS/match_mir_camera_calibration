@@ -1,10 +1,11 @@
-# Required physical values are intentionally blank. All lengths are metres.
+# Measured marker lengths are prefilled; other required physical values remain blank.
+# All lengths are metres; marker length includes the black frame, not the white margin.
 target_robot: mur620a
 observer_robot: mur620b
 dictionary: DICT_4X4_250  # Select the dictionary actually used by your printouts.
 markers:
-  rear_left: {id: null, length_m: null}
-  rear_right: {id: null, length_m: null}
+  rear_left: {id: null, length_m: 0.16}
+  rear_right: {id: null, length_m: 0.16}
 height_anchor: {marker: rear_left, z_m: null}
 # Outer FREE floor rectangle in the Qualisys 'mocap' coordinate system.
 bounds: {x_min: null, x_max: null, y_min: null, y_max: null}
