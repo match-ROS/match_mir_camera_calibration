@@ -17,7 +17,7 @@ def config(tmp_path):
     c['dictionary'] = 'DICT_4X4_250'
     c['observer_robot'] = 'mur620b'
     c['markers'] = {'rear_left': {'id': 7, 'length_m': 0.10}, 'rear_right': {'id': 8, 'length_m': 0.10}}
-    c['height_anchor']['z_m'] = 0.32
+    c['height_anchor'] = {'marker': 'rear_left', 'z_m': 0.32}
     c['bounds'] = {'x_min': -4., 'x_max': 4., 'y_min': -4., 'y_max': 4.}
     c['target_radius_m'] = c['observer_radius_m'] = 0.70
     c['output_dir'] = str(tmp_path/'sessions')

@@ -6,11 +6,11 @@ acquisition_mode: manual  # Joystick driving; the recorder never publishes cmd_v
 preview_rotate_ccw: true  # MiR floor RGB cameras are mounted sideways.
 dictionary: DICT_APRILTAG_36h11  # Confirmed from the live images of the current markers.
 markers:
-  rear_left: {id: 0, length_m: 0.16}
-  rear_right: {id: 1, length_m: 0.16}
-# Marker centre measured 0.58 m above the floor. In the MuR620 URDF,
-# base_footprint -> base_link is identity, so the base_link height is also 0.58 m.
-height_anchor: {marker: rear_left, z_m: 0.58}
+  front_left: {id: 7, length_m: 0.16}
+  front_right: {id: 24, length_m: 0.16}
+# Front marker centre measured 0.44 m above the floor. In the MuR620 URDF,
+# base_footprint -> base_link is identity, so the base_link height is also 0.44 m.
+height_anchor: {marker: front_left, z_m: 0.44}
 # Automatic driving only: outer FREE rectangle in Qualisys 'mocap' coordinates.
 # Optional for manual acquisition; the joystick operator controls the driving.
 bounds: {x_min: null, x_max: null, y_min: null, y_max: null}

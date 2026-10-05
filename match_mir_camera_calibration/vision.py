@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 
 from .geometry import marker_points, values
+from .config import MARKER_LABELS
 
 
 def camera_model(info):
@@ -98,7 +99,7 @@ class Detector:
                 corners = np.column_stack((corners[:, 1], image.shape[1]-1-corners[:, 0]))
             x = int(np.clip(corners[:, 0].min(), 0, max(0, result.shape[1]-225)))
             y = max(16, int(corners[:, 1].min())-25)
-            label = 'hinten links' if item['marker'] == 'rear_left' else 'hinten rechts'
+            label = MARKER_LABELS.get(item['marker'], item['marker'])
             lines = [f"ID {item['id']} {label}"]
             if item['pnp_candidates']:
                 xyz = item['pnp_candidates'][0]['transform'][:3]

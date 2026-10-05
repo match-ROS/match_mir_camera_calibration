@@ -56,6 +56,17 @@ def test_motion_is_locked_by_default(config):
         c.start(0.1)
 
 
+def test_front_marker_raster_faces_front_toward_observer(config):
+    config['markers'] = {name.replace('rear_', 'front_'): item for name, item in config['markers'].items()}
+    config['height_anchor']['marker'] = 'front_left'
+    config = validate(config)
+    planner = Planner(config, [0, 0])
+    for x, y, angle in planner.raster()[1::3]:
+        direction = np.array([math.cos(angle), math.sin(angle)])
+        np.testing.assert_allclose(direction, -np.array([x, y])/math.hypot(x, y), atol=1e-8)
+        assert planner.safe([x, y])
+
+
 def test_short_verification_is_slow_and_does_not_unlock_raster(enabled):
     enabled['boundary_verified'] = False
     c = SessionController(enabled)

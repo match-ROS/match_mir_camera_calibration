@@ -25,7 +25,7 @@ import yaml
 
 from match_mur_gui.base_gui import MurBaseGui, MurGuiModule, setup_prefix
 
-from .config import validate
+from .config import MARKER_LABELS, marker_names, validate
 from .controller import ACTIVE
 from .session_node import PREFIX
 from .qr import qr_image
@@ -289,7 +289,11 @@ class CalibrationModule(MurGuiModule):
         self.form.addRow('Aufnahmemodus (manual = Joystick + Web)', mode)
         self.form.addRow(QtWidgets.QLabel('Manuell: Backend laden startet auch die iPhone-Webansicht auf Port 8080.\n'
                                           'Danach „iPhone-QR-Code“ drücken und mit dem iPhone scannen.'))
-        for name, label in [('rear_left', 'Marker hinten links'), ('rear_right', 'Marker hinten rechts')]:
+        pair = QtWidgets.QComboBox()
+        pair.addItems(['front', 'rear'])
+        self.fields['marker_pair'] = pair
+        self.form.addRow('Markerpaar (front = vorne, rear = hinten)', pair)
+        for name in ('left', 'right'):
             row = QtWidgets.QWidget()
             box = QtWidgets.QHBoxLayout(row)
             box.setContentsMargins(0, 0, 0, 0)
@@ -299,11 +303,14 @@ class CalibrationModule(MurGuiModule):
                 self.fields[f'{name}.{sub}'] = edit
                 box.addWidget(QtWidgets.QLabel(caption))
                 box.addWidget(edit)
+            label = QtWidgets.QLabel()
+            self.fields[f'{name}.label'] = label
             self.form.addRow(label, row)
         anchor = QtWidgets.QComboBox()
-        anchor.addItems(['rear_left', 'rear_right'])
         self.fields['anchor_marker'] = anchor
         self.form.addRow('Marker der Höhenreferenz', anchor)
+        pair.currentTextChanged.connect(self._marker_pair_changed)
+        self._marker_pair_changed(pair.currentText())
         for key, label in [('anchor_z', 'Markermitte: z in base_link [m]'),
                            ('x_min', 'Bereich x_min [m]'), ('x_max', 'Bereich x_max [m]'),
                            ('y_min', 'Bereich y_min [m]'), ('y_max', 'Bereich y_max [m]'),
@@ -400,15 +407,26 @@ class CalibrationModule(MurGuiModule):
         layout.addWidget(self.result_text)
         self.tabs.addTab(tab, 'Auswertung')
 
+    def _marker_pair_changed(self, prefix):
+        anchor = self.fields['anchor_marker']
+        side = 'right' if anchor.currentText().endswith('_right') else 'left'
+        anchor.clear()
+        anchor.addItems([prefix+'_left', prefix+'_right'])
+        anchor.setCurrentText(prefix+'_'+side)
+        for side in ('left', 'right'):
+            self.fields[f'{side}.label'].setText('Marker '+MARKER_LABELS[prefix+'_'+side])
+
     def _apply_template(self, config):
         self.editor.setPlainText(yaml.safe_dump(config, sort_keys=False))
         for key in ('target_robot', 'observer_robot', 'dictionary'):
             self.fields[key].setCurrentText(str(config[key]))
         self.fields['acquisition_mode'].setCurrentText(config.get('acquisition_mode', 'automatic'))
-        for marker in ('rear_left', 'rear_right'):
+        self.fields['marker_pair'].setCurrentText(marker_names(config)[0].split('_')[0])
+        for marker in marker_names(config):
+            side = marker.split('_')[1]
             for sub in ('id', 'length_m'):
                 v = config['markers'][marker][sub]
-                self.fields[f'{marker}.{sub}'].setText('' if v is None else str(v))
+                self.fields[f'{side}.{sub}'].setText('' if v is None else str(v))
         self.fields['anchor_marker'].setCurrentText(config['height_anchor']['marker'])
         self.fields['anchor_z'].setText('' if config['height_anchor']['z_m'] is None else str(config['height_anchor']['z_m']))
         for key in ('x_min', 'x_max', 'y_min', 'y_max'):
@@ -427,9 +445,11 @@ class CalibrationModule(MurGuiModule):
         for key in ('target_robot', 'observer_robot', 'dictionary'):
             config[key] = self.fields[key].currentText()
         config['acquisition_mode'] = self.fields['acquisition_mode'].currentText()
-        for marker in ('rear_left', 'rear_right'):
-            config['markers'][marker]['id'] = int(self.fields[f'{marker}.id'].text())
-            config['markers'][marker]['length_m'] = float(self.fields[f'{marker}.length_m'].text())
+        prefix = self.fields['marker_pair'].currentText()
+        config['markers'] = {prefix+'_'+side: {
+            'id': int(self.fields[f'{side}.id'].text()),
+            'length_m': float(self.fields[f'{side}.length_m'].text())}
+            for side in ('left', 'right')}
         config['height_anchor'] = {'marker': self.fields['anchor_marker'].currentText(), 'z_m': float(self.fields['anchor_z'].text())}
         for key in ('x_min', 'x_max', 'y_min', 'y_max'):
             value = self.fields[key].text().strip()

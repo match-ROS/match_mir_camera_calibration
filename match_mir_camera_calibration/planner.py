@@ -5,6 +5,7 @@ import math
 import numpy as np
 
 from .geometry import wrap
+from .config import marker_names
 
 
 class PlanningError(ValueError):
@@ -118,9 +119,11 @@ class Planner:
             for x in xs:
                 if not self.safe([x, y]):
                     continue
-                rear_to_observer = math.atan2(y-self.observer[1], x-self.observer[0])
+                yaw = math.atan2(y-self.observer[1], x-self.observer[0])
+                if marker_names(self.c)[0] == 'front_left':
+                    yaw += math.pi
                 for offset in grid['yaw_offsets_deg']:
-                    result.append([float(x), float(y), wrap(rear_to_observer + math.radians(offset))])
+                    result.append([float(x), float(y), wrap(yaw + math.radians(offset))])
         if not result:
             raise PlanningError('No valid raster poses remain')
         return result

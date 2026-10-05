@@ -8,14 +8,13 @@ import numpy as np
 from scipy.optimize import least_squares
 import yaml
 
-from .config import validate
+from .config import marker_names, validate
 from .dataset import load_dataset, write_json
 from .geometry import distance, inverse, marker_points, pack, transform, unpack, values
 from .vision import camera_model, hypotheses
 
 
 SIDES = ('left', 'right')
-MARKERS = ('rear_left', 'rear_right')
 
 
 class CalibrationError(ValueError):
@@ -52,7 +51,7 @@ def observations(measurements, config):
             relative = inverse(transform(image['pose_b'])) @ transform(image['pose_a'])
             for detection in image['detections']:
                 name = detection['marker']
-                if name not in MARKERS or detection['id'] != config['markers'][name]['id']:
+                if name not in config['markers'] or detection['id'] != config['markers'][name]['id']:
                     raise CalibrationError('Marker configuration differs from recorded detections')
                 corners = np.asarray(detection['corners'], float)
                 if corners.shape != (4, 2) or not np.all(np.isfinite(corners)):
@@ -67,11 +66,17 @@ def observations(measurements, config):
     return result, frames
 
 
-def check_coverage(obs, minimum=6):
-    nodes = set(SIDES + MARKERS)
+def check_coverage(obs, minimum=6, markers=None):
+    if markers is None:
+        observed = {o['marker'] for o in obs}
+        prefix = 'front' if any(name.startswith('front_') for name in observed) else 'rear'
+        markers = (prefix+'_left', prefix+'_right')
+    nodes = set(SIDES + tuple(markers))
     edges = {node: set() for node in nodes}
     coverage = {node: set() for node in nodes}
     for o in obs:
+        if o['side'] not in SIDES or o['marker'] not in markers:
+            raise CalibrationError('Observation does not belong to the configured camera/marker pair')
         edges[o['side']].add(o['marker'])
         edges[o['marker']].add(o['side'])
         coverage[o['side']].add(o['waypoint'])
@@ -93,8 +98,9 @@ def check_coverage(obs, minimum=6):
 class JointProblem:
     def __init__(self, config, obs):
         self.config, self.obs = config, obs
-        self.points = {name: marker_points(config['markers'][name]['length_m']) for name in MARKERS}
-        self.anchor_index = 12 + 6*MARKERS.index(config['height_anchor']['marker']) + 5
+        self.markers = marker_names(config)
+        self.points = {name: marker_points(config['markers'][name]['length_m']) for name in self.markers}
+        self.anchor_index = 12 + 6*self.markers.index(config['height_anchor']['marker']) + 5
         self.free = np.delete(np.arange(24), self.anchor_index)
 
     def expand(self, x):
@@ -105,7 +111,7 @@ class JointProblem:
 
     def transforms(self, x):
         full = self.expand(x)
-        return {name: unpack(full[6*i:6*i+6]) for i, name in enumerate(SIDES+MARKERS)}
+        return {name: unpack(full[6*i:6*i+6]) for i, name in enumerate(SIDES+self.markers)}
 
     def residual(self, x, obs=None):
         ts = self.transforms(x)
@@ -154,18 +160,18 @@ class JointProblem:
                 raise CalibrationError(f'No initial camera guess for {side}. Record live base_link -> optical TF '
                                        'or provide --initial-guesses YAML with left/right [xyz,qxyzw].')
             ts[side] = transform(guesses[side])
-        for marker in MARKERS:
+        for marker in self.markers:
             usable = [o for o in self.obs if o['marker'] == marker and o['candidates']]
             if not usable:
                 raise CalibrationError(f'No valid positive-depth PnP initialization for {marker}')
             o = usable[0]
             candidate = o['candidates'][min(int(alternative), len(o['candidates'])-1)]
             ts[marker] = inverse(o['relative']) @ ts[o['side']] @ transform(candidate['transform'])
-        return np.concatenate([pack(ts[name]) for name in SIDES+MARKERS])[self.free]
+        return np.concatenate([pack(ts[name]) for name in SIDES+self.markers])[self.free]
 
 
 def fit(config, obs, guesses, starts=4):
-    check_coverage(obs)
+    check_coverage(obs, markers=marker_names(config))
     problem = JointProblem(config, obs)
     rng = np.random.default_rng(620)
     best = None
@@ -205,7 +211,7 @@ def solve_dataset(path, initial_guesses=None, starts=4):
     root, manifest, raw, measurements = load_dataset(path)
     config = validate(raw)
     obs, frames = observations(measurements, config)
-    coverage = check_coverage(obs)
+    coverage = check_coverage(obs, markers=marker_names(config))
     ids = sorted({o['waypoint'] for o in obs})
     if len(ids) < 10:
         raise CalibrationError('At least 10 accepted measurement poses are required for independent validation')
@@ -233,7 +239,7 @@ def solve_dataset(path, initial_guesses=None, starts=4):
                report['condition_number'] <= 1e6 else 'draft')
     export = {'schema_version': 1, 'quality': quality, 'units': 'metres',
               'height_anchor': config['height_anchor'], 'transforms': {}, 'report': report}
-    for name in SIDES+MARKERS:
+    for name in SIDES+problem.markers:
         parent = f"{config['observer_robot'] if name in SIDES else config['target_robot']}/base_link"
         child = frames[name] if name in SIDES else f"{config['target_robot']}/aruco_{name}"
         v = values(ts[name])

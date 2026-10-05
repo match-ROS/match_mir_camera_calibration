@@ -12,6 +12,18 @@ class ConfigurationError(ValueError):
     pass
 
 
+MARKER_PAIRS = (('rear_left', 'rear_right'), ('front_left', 'front_right'))
+MARKER_LABELS = {'rear_left': 'hinten links', 'rear_right': 'hinten rechts',
+                 'front_left': 'vorne links', 'front_right': 'vorne rechts'}
+
+
+def marker_names(config):
+    for pair in MARKER_PAIRS:
+        if set(config['markers']) == set(pair):
+            return pair
+    raise ConfigurationError('Configure rear_left/rear_right or front_left/front_right markers')
+
+
 def number(value, name, low=None, high=None):
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
         raise ConfigurationError(f'{name}: a finite number is required')
@@ -41,8 +53,7 @@ def validate(raw):
         if not isinstance(dictionary, str) or not dictionary.startswith('DICT_') or not hasattr(cv2.aruco, dictionary):
             raise ConfigurationError('Unknown ArUco dictionary')
         capacity = len(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, dictionary)).bytesList)
-        if set(c['markers']) != {'rear_left', 'rear_right'}:
-            raise ConfigurationError('Configure rear_left and rear_right markers')
+        marker_names(c)
         ids = []
         for name, marker in c['markers'].items():
             mid = marker['id']

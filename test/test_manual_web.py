@@ -79,13 +79,13 @@ def test_apriltag_detection_and_upright_pose_overlay():
     dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, c['dictionary']))
     image = np.full((480, 640, 3), 255, np.uint8)
     generate = getattr(cv2.aruco, 'generateImageMarker', None) or cv2.aruco.drawMarker
-    image[140:320, 50:230] = generate(dictionary, 0, 180)[..., None]
-    image[140:320, 390:570] = generate(dictionary, 1, 180)[..., None]
+    image[140:320, 50:230] = generate(dictionary, c['markers']['front_left']['id'], 180)[..., None]
+    image[140:320, 390:570] = generate(dictionary, c['markers']['front_right']['id'], 180)[..., None]
     info = {'height': 480, 'width': 640, 'distortion_model': 'plumb_bob',
             'k': [600., 0., 320., 0., 600., 240., 0., 0., 1.], 'd': [0.]*5}
     detector = Detector(c)
     detections = detector.detect(image, info)
-    assert {d['id']: d['marker'] for d in detections} == {0: 'rear_left', 1: 'rear_right'}
+    assert {d['id']: d['marker'] for d in detections} == {7: 'front_left', 24: 'front_right'}
     assert all(d['pnp_candidates'][0]['transform'][2] > .4 for d in detections)
     original = image.copy()
     overlay = detector.overlay(image, detections, info, rotate_ccw=True)

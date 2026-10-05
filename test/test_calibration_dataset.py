@@ -9,6 +9,7 @@ from match_mir_camera_calibration.calibration import (
     CalibrationError, check_coverage, fit, observations, solve_dataset,
 )
 from match_mir_camera_calibration.dataset import Dataset, load_dataset
+from match_mir_camera_calibration.config import marker_names, validate
 from match_mir_camera_calibration.geometry import distance, inverse, marker_points, pack, transform, values
 from match_mir_camera_calibration.vision import Detector, camera_model, hypotheses
 from conftest import planar
@@ -20,8 +21,8 @@ def synthetic(config, noise=0.0, only_translation=False):
     ts = {}
     for side, y in [('left', .25), ('right', -.25)]:
         ts[side] = transform([.55, y, .25, *Rotation.from_matrix(rc).as_quat()])
-    for marker, y in [('rear_left', .30), ('rear_right', -.30)]:
-        ts[marker] = transform([-.60, y, .32, *Rotation.from_matrix(rm).as_quat()])
+    for marker, y in zip(marker_names(config), [.30, -.30]):
+        ts[marker] = transform([-.60, y, config['height_anchor']['z_m'], *Rotation.from_matrix(rm).as_quat()])
     k = np.array([[600., 0, 640], [0, 600., 360], [0, 0, 1]])
     info = {'height': 720, 'width': 1280, 'distortion_model': 'plumb_bob',
             'k': k.ravel().tolist(), 'd': [0., 0., 0., 0., 0.]}
@@ -36,7 +37,7 @@ def synthetic(config, noise=0.0, only_translation=False):
                 mid = f'{index:06d}'
                 for side in ('left', 'right'):
                     detections = []
-                    for marker in ('rear_left', 'rear_right'):
+                    for marker in marker_names(config):
                         t = inverse(ts[side]) @ a @ ts[marker]
                         pts = marker_points(config['markers'][marker]['length_m'])
                         corners = cv2.projectPoints(pts, cv2.Rodrigues(t[:3, :3])[0], t[:3, 3], k, np.zeros(5))[0].reshape(4, 2)
@@ -104,7 +105,12 @@ def test_solver_needs_camera_initial_guesses(config):
         fit(config, obs, {}, starts=1)
 
 
-def test_dataset_roundtrip_rejected_bursts_excluded_and_holdout_by_pose(config):
+@pytest.mark.parametrize('pair', ['rear', 'front'])
+def test_dataset_roundtrip_rejected_bursts_excluded_and_holdout_by_pose(config, pair):
+    if pair == 'front':
+        config['markers'] = {name.replace('rear_', 'front_'): item for name, item in config['markers'].items()}
+        config['height_anchor'] = {'marker': 'front_left', 'z_m': .44}
+        config = validate(config)
     ts, _, guesses, records = synthetic(config)
     writer = Dataset(config, guesses)
     for i, record in enumerate(records):
@@ -125,7 +131,8 @@ def test_dataset_roundtrip_rejected_bursts_excluded_and_holdout_by_pose(config):
     assert export['report']['validation']['detections'] == 20
     assert export['report']['validation_pose_ids'] == ['000004', '000009', '000014', '000019', '000024']
     assert export['transforms']['left']['parent_frame'] == 'mur620b/base_link'
-    assert export['transforms']['rear_left']['child_frame'] == 'mur620a/aruco_rear_left'
+    assert export['transforms'][pair+'_left']['child_frame'] == 'mur620a/aruco_'+pair+'_left'
+    assert export['transforms'][pair+'_left']['translation'][2] == config['height_anchor']['z_m']
     assert (root/'calibration.yaml').is_file()
 
 
