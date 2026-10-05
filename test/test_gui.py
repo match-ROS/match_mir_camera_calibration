@@ -103,8 +103,8 @@ def test_real_base_gui_starts_and_closes_without_hardware(tmp_path, monkeypatch)
         assert module.backend_config is None
         settings = module._config()  # Manual defaults work with blank area/contour fields.
         assert settings['acquisition_mode'] == 'manual' and settings['observer_robot'] == 'mur620d'
-        assert settings['markers'] == {'front_left': {'id': 7, 'length_m': .16},
-                                       'front_right': {'id': 24, 'length_m': .16}}
+        assert settings['markers'] == {'front_left': {'id': 24, 'length_m': .16},
+                                       'front_right': {'id': 7, 'length_m': .16}}
         assert settings['height_anchor'] == {'marker': 'front_left', 'z_m': .44}
         assert settings['bounds']['x_min'] is None
         module._pulse()

@@ -85,7 +85,7 @@ def test_apriltag_detection_and_upright_pose_overlay():
             'k': [600., 0., 320., 0., 600., 240., 0., 0., 1.], 'd': [0.]*5}
     detector = Detector(c)
     detections = detector.detect(image, info)
-    assert {d['id']: d['marker'] for d in detections} == {7: 'front_left', 24: 'front_right'}
+    assert {d['id']: d['marker'] for d in detections} == {24: 'front_left', 7: 'front_right'}
     assert all(d['pnp_candidates'][0]['transform'][2] > .4 for d in detections)
     original = image.copy()
     overlay = detector.overlay(image, detections, info, rotate_ccw=True)

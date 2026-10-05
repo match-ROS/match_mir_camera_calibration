@@ -1,5 +1,4 @@
 from copy import deepcopy
-import json
 from pathlib import Path
 
 import cv2
@@ -44,7 +43,7 @@ def test_known_id_recovers_code_damage_and_preserves_corner_order(settings, mid,
     expected = ordinary.detect(marker_image(settings, mid, rotation=rotation), INFO)[0]
     found = robust.detect(damaged, INFO)
     assert len(found) == 1 and found[0]['id'] == mid
-    assert found[0]['marker'] == ('front_left' if mid == 7 else 'front_right')
+    assert found[0]['marker'] == ('front_left' if mid == 24 else 'front_right')
     assert found[0]['corrected_bits'] == errors
     assert found[0]['correction_limit_bits'] == 2
     # This also exercises the upscaled path and its pixel-centre conversion.
@@ -75,6 +74,15 @@ def test_duplicate_known_markers_are_rejected(settings):
     image[:, 320:] = np.roll(marker_image(settings, 7), 130, axis=1)[:, 320:]
     with pytest.raises(ValueError, match='Duplicate marker ID'):
         Detector(settings).detect(image, INFO)
+
+
+def test_recovery_radius_also_protects_unconfigured_family_codes(settings):
+    settings['dictionary'] = 'DICT_4X4_1000'
+    detector = Detector(settings)
+    # Selected codes 7/24 have closer neighbours elsewhere in this dictionary.
+    # Restricting the list must not give them an unsafe correction radius.
+    assert detector.code_distance == 2
+    assert detector.recovery_dictionary.maxCorrectionBits == 0
 
 
 def test_zero_false_detections_in_deterministic_random_squares(settings):

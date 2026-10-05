@@ -65,7 +65,7 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
    LAN-Adresse wird automatisch gewählt; bei mehreren Netzwerken kann sie mit
    `--advertise-host 10.145.8.71` vorgegeben werden (passende Rechner-IP einsetzen).
    Der Standardport ist **8080**; der QR-Code gilt für diesen Serverstart.
-4. Bilder und Overlays prüfen: IDs **7 vorne links / 24 vorne rechts**, Dictionary
+4. Bilder und Overlays prüfen: IDs **24 vorne links / 7 vorne rechts**, Dictionary
    `DICT_APRILTAG_36h11`, schwarze Quadratseite **0,16 m** und Höhenreferenz des
    linken Markermittelpunkts **0,44 m** sind bereits eingetragen. Die Kameraseite
    bezeichnet die Kamera der D, nicht die Seite des Markers an A.
@@ -179,11 +179,14 @@ zentrierte Quadratkonvention mit den detektierten Ecken
 
 ## Wechsel zwischen vorderen und hinteren Markern
 
-Der Standard ist nun das vordere Paar der MuR620a: **links ID 7, rechts ID 24**,
+Der Standard ist nun das vordere Paar der MuR620a: **links ID 24, rechts ID 7**,
 Dictionary `DICT_APRILTAG_36h11`, schwarze Quadratseite 0,16 m,
 Höhenreferenz `front_left: 0.44`. Links/rechts gilt aus Sicht des Roboters in
 Fahrtrichtung; beim Blick auf seine Front erscheinen die Seiten vertauscht.
-Die linke Kamera der D sieht daher aktuell ID 24, die rechte ID 7.
+Die Kameranamen sagen nichts über die Markerseite an A aus: In den ersten
+Aufnahmen sah die linke Kamera der D ID 24, die rechte ID 7. Die Zuordnung
+wurde bei der Auswertung anhand der positiven/negativen y-Koordinate in
+`base_link` korrigiert; alte Sitzungen behalten ihre ursprünglichen Labels.
 
 In der GUI wählt **Markerpaar** `front` oder `rear`. Bei einer eigenen YAML
 müssen `markers` und `height_anchor.marker` denselben Namenssatz verwenden:

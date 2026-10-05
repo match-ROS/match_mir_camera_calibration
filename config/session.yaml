@@ -7,8 +7,8 @@ preview_rotate_ccw: true  # MiR floor RGB cameras are mounted sideways.
 dictionary: DICT_APRILTAG_36h11  # Confirmed from the live images of the current markers.
 robust_detection: true  # Known-ID recovery (max. two code-bit errors), scale/contrast fallback.
 markers:
-  front_left: {id: 7, length_m: 0.16}
-  front_right: {id: 24, length_m: 0.16}
+  front_left: {id: 24, length_m: 0.16}
+  front_right: {id: 7, length_m: 0.16}
 # Front marker centre measured 0.44 m above the floor. In the MuR620 URDF,
 # base_footprint -> base_link is identity, so the base_link height is also 0.44 m.
 height_anchor: {marker: front_left, z_m: 0.44}
