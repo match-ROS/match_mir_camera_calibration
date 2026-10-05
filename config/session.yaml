@@ -5,6 +5,7 @@ observer_robot: mur620d
 acquisition_mode: manual  # Joystick driving; the recorder never publishes cmd_vel.
 preview_rotate_ccw: true  # MiR floor RGB cameras are mounted sideways.
 dictionary: DICT_APRILTAG_36h11  # Confirmed from the live images of the current markers.
+robust_detection: true  # Known-ID recovery (max. two code-bit errors), scale/contrast fallback.
 markers:
   front_left: {id: 7, length_m: 0.16}
   front_right: {id: 24, length_m: 0.16}

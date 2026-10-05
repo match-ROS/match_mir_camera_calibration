@@ -37,7 +37,7 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
 
 ## Manueller Versuch mit iPhone
 
-1. MuR620d abstellen und mit den Kameras auf die hinteren Marker der A ausrichten.
+1. MuR620d abstellen und mit den Kameras auf die vorderen Marker der A ausrichten.
    Hardware/Kamera-Bridge für A und D sowie die vorhandene Mocap-Bridge starten.
    Benötigt werden beide RGB-Streams mit `CameraInfo`, rohe Posen unter
    `/qualisys/mur620a/pose` und `/qualisys/mur620d/pose`. MiR-`robot_state`-Topics
@@ -65,9 +65,9 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
    LAN-Adresse wird automatisch gewählt; bei mehreren Netzwerken kann sie mit
    `--advertise-host 10.145.8.71` vorgegeben werden (passende Rechner-IP einsetzen).
    Der Standardport ist **8080**; der QR-Code gilt für diesen Serverstart.
-4. Bilder und Overlays prüfen: IDs **0 hinten links / 1 hinten rechts**, Dictionary
+4. Bilder und Overlays prüfen: IDs **7 vorne links / 24 vorne rechts**, Dictionary
    `DICT_APRILTAG_36h11`, schwarze Quadratseite **0,16 m** und Höhenreferenz des
-   linken Markermittelpunkts **0,58 m** sind bereits eingetragen. Die Kameraseite
+   linken Markermittelpunkts **0,44 m** sind bereits eingetragen. Die Kameraseite
    bezeichnet die Kamera der D, nicht die Seite des Markers an A.
 5. A mit dem Joystick positionieren, loslassen und **Neue Pose aufnehmen** drücken.
    Der Recorder wartet mindestens zwei Sekunden nach der Anforderung und auf
@@ -106,17 +106,18 @@ Für automatische Fahrt `acquisition_mode: automatic` wählen und den Webserver
 beenden. Fahrbereich, beide Konturradien und die folgenden Freigaben sind dafür
 weiterhin Pflicht. Den Recorder über die Desktop-GUI laden.
 
-1. Arme abstellen, freien Fahrbereich festlegen und B auf die Rückseite der A
-   ausrichten. MiR-Hardware und die Kamera-Bridge starten, beispielsweise über
+1. Arme abstellen, freien Fahrbereich festlegen und den Kamera-MuR auf die
+   konfigurierte Marker-Seite der A ausrichten. MiR-Hardware und die Kamera-Bridge starten, beispielsweise über
    **Start Hardware**. Bestehendes Mocap weiterverwenden oder **Mocap-Bridge
    starten** wählen. Eine eigene Bridge publiziert nur Rohdaten, ohne Map-/Roboter-TF.
 2. Pflichtfelder im Tab **Konfiguration** eintragen. Das Muster
    [config/session.yaml](config/session.yaml) enthält bereits das erkannte
    Dictionary `DICT_APRILTAG_36h11`, für beide Marker die gemessene Kantenlänge
-   von **0,16 m** und für den linken Marker die Höhenreferenz **0,58 m** im
+   von **0,16 m** und für den vorderen linken Marker die Höhenreferenz **0,44 m** im
    `base_link`. Bereich und Konturradien sind für automatische Fahrt noch einzutragen.
    Für erweiterte Einstellungen YAML bearbeiten und anschließend
    **YAML in die Formularfelder übernehmen** wählen.
+   Das Raster richtet die konfigurierte Marker-Seite (`front`/`rear`) zur Kamera aus.
 3. **Backend laden**. Beide Bilder mit Marker-Overlays prüfen. MiR- und PC-Uhren
    müssen ausreichend synchronisiert sein: Bilder älter als eine Sekunde,
    zukünftige und rückwärts laufende Zeitstempel werden ausgeschlossen.
@@ -155,8 +156,10 @@ dessen Prozess beenden oder die GUI neu starten.
 - `height_anchor.z_m` ist die Höhe des Markermittelpunkts **im `base_link` der A**,
   nicht automatisch die Höhe über dem Boden. Im aktuellen MuR620-Modell ist
   `base_footprint → base_link` eine Identität (Translation und Drehung null).
-  Damit entsprechen die gemessenen **58 cm über dem Boden** bei waagerechtem
-  Stand **0,58 m im `base_link`**; dieser Wert ist für `rear_left` vorbelegt.
+  Damit entsprechen die gemessenen **44 cm über dem Boden** bei waagerechtem
+  Stand **0,44 m im `base_link`**; dieser Wert ist für `front_left` vorbelegt.
+  Die bisher aufgenommenen hinteren Marker haben eine Referenzhöhe von 0,58 m;
+  deren gespeicherte Sitzungskonfiguration bleibt unverändert.
   Bei einem anderen Modell mit Höhenversatz gilt
   `z_marker_in_base_link = Höhe_über_Boden − Höhe_base_link_über_Boden`.
 - Die Konturradien umfassen den kompletten Roboter inklusive abgestellter Arme,
@@ -173,6 +176,74 @@ Exportkonvention: `parent_T_child` bildet Kindkoordinaten auf Elternkoordinaten
 ab, Translation in Metern, Quaternion `xyzw`. Markerframes verwenden OpenCVs
 zentrierte Quadratkonvention mit den detektierten Ecken
 `[-L/2,+L/2,0], [+L/2,+L/2,0], [+L/2,-L/2,0], [-L/2,-L/2,0]`.
+
+## Wechsel zwischen vorderen und hinteren Markern
+
+Der Standard ist nun das vordere Paar der MuR620a: **links ID 7, rechts ID 24**,
+Dictionary `DICT_APRILTAG_36h11`, schwarze Quadratseite 0,16 m,
+Höhenreferenz `front_left: 0.44`. Links/rechts gilt aus Sicht des Roboters in
+Fahrtrichtung; beim Blick auf seine Front erscheinen die Seiten vertauscht.
+Die linke Kamera der D sieht daher aktuell ID 24, die rechte ID 7.
+
+In der GUI wählt **Markerpaar** `front` oder `rear`. Bei einer eigenen YAML
+müssen `markers` und `height_anchor.marker` denselben Namenssatz verwenden:
+`front_left/front_right` oder `rear_left/rear_right`. Alte Messordner mit den
+hinteren IDs 0/1 und 0,58 m bleiben mit ihrer eigenen Konfiguration auswertbar.
+Die gemeinsame Optimierung und die Exportframes verwenden die jeweils
+aufgenommenen Namen. Ein Paarwechsel benötigt einen neu geladenen Backend;
+es beginnt ein neuer Messordner, und bisherige Aufnahmen bleiben erhalten.
+
+## Robustere Erkennung bekannter Marker
+
+`robust_detection: true` ist der Standard. Die gewöhnliche OpenCV-Erkennung
+bleibt der erste Schritt. Fehlende IDs werden zusätzlich mit einem Dictionary
+nur aus den beiden konfigurierten Originalcodes gesucht. Die Original-IDs und
+Druckausrichtungen bleiben erhalten. Die Fehlerkorrektur ist auf höchstens
+zwei interne Code-Bits begrenzt; der Abstand zu **allen** Codes und Drehungen
+des ursprünglichen Dictionarys kann diese Grenze weiter verkleinern.
+
+Zusätzliche Suchdurchläufe verwenden eine zweifach vergrößerte Darstellung
+oder lokalen Kontrastausgleich (CLAHE). Erkannte Ecken werden in die
+Originalpixelkoordinaten zurückgerechnet und am Originalbild verfeinert.
+Dabei wird das kleine Suchfenster an die Zellgröße angepasst. Der Code und
+der schwarze Rand werden anschließend erneut auf den Originalpixeln geprüft.
+Zusätzliche Treffer benötigen sichtbare Ecken mit Abstand zum Bildrand und
+eine positive PnP-Lösung mit höchstens 1,5 Pixel RMS-Reprojektionsfehler.
+Vollständige Verdeckung, verschwundene Marker und doppelte bekannte IDs
+werden nicht durch Positionsannahmen ersetzt.
+
+Jeder Bilddatensatz speichert `detector` (Version, OpenCV, Einstellungen) und
+pro Fund `detection_method`, `correction_limit_bits`; zusätzliche Treffer
+halten auch die beim Nachprüfen gefundenen `corrected_bits` fest. Originalbilder
+bleiben verlustfreie PNGs. Für einen direkten Vergleich kann in der YAML
+`robust_detection: false` gesetzt und das Backend neu geladen werden.
+
+Ein Vergleich auf 235 gespeicherten Bildern der Sitzung
+`20261005T141627Z_a2cfeb5e` ergab **58 → 128 Markerfunde**, ohne Verlust der
+bisherigen Treffer. Das ist ein Vergleich der Erkennungsanzahl; größere
+Verdeckungen und die absolute Kalibriergenauigkeit sind damit nicht validiert.
+Die neuen Suchschritte brauchen auf diesem Rechner im Median etwa 7 ms je
+Bild. Die Marker waren häufig nur rund 25–35 Pixel breit.
+
+Bereits aufgenommene Sitzungen können erneut mit dem aktuellen Detektor
+ausgewertet werden:
+
+```bash
+ros2 run match_mir_camera_calibration calibrate_session /pfad/zur/sitzung --redetect
+```
+
+Die Neudetektion verwendet ausschließlich akzeptierte Stillstandsaufnahmen;
+Originalbilder, Zeitstempel und `measurement.json` bleiben unverändert.
+`redetection_report.json` protokolliert den Vergleich. Die gewohnte gemeinsame
+Optimierung und unabhängige Validierung folgen danach; `calibration.yaml`
+und `quality_report.json` werden als neue Auswertungsergebnisse geschrieben.
+Ohne `--redetect` werden weiterhin die ursprünglich gespeicherten Eckpunkte
+verwendet.
+
+Stark verdeckte Außenkanten oder Ecken können diese Suche weiterhin verhindern.
+Für spätere Lokalisierung kann nach der Kalibrierung die feste Geometrie beider
+Marker gemeinsam genutzt werden, wenn einer ausfällt. Ein daraus vorhergesagter
+verdeckter Marker ist dann eine Vorhersage und keine zusätzliche Bildmessung.
 
 ## Aufnahme und Überwachung
 

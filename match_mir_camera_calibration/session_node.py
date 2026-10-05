@@ -187,7 +187,8 @@ class CalibrationSession(Node):
                   'source_encoding': msg.encoding, 'camera_info': info,
                   'pose_a': poses.get(self.c['target_robot']), 'pose_b': poses.get(self.c['observer_robot']),
                   'pose_a_header': headers.get(self.c['target_robot']),
-                  'pose_b_header': headers.get(self.c['observer_robot']), 'detections': detections}
+                  'pose_b_header': headers.get(self.c['observer_robot']), 'detections': detections,
+                  'detector': self.detectors[side].description()}
         return image, overlay, record, received_mono, capture_id
 
     def _reject(self, reason):

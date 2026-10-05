@@ -44,6 +44,8 @@ def validate(raw):
             raise ConfigurationError('Manual acquisition requires motion_enabled: false')
         if not isinstance(c.setdefault('preview_rotate_ccw', False), bool):
             raise ConfigurationError('preview_rotate_ccw must be boolean')
+        if not isinstance(c.setdefault('robust_detection', True), bool):
+            raise ConfigurationError('robust_detection must be boolean')
         for key in ('target_robot', 'observer_robot'):
             if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', str(c[key])):
                 raise ConfigurationError(f'{key}: invalid robot namespace')

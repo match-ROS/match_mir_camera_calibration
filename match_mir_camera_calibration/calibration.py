@@ -11,7 +11,7 @@ import yaml
 from .config import marker_names, validate
 from .dataset import load_dataset, write_json
 from .geometry import distance, inverse, marker_points, pack, transform, unpack, values
-from .vision import camera_model, hypotheses
+from .vision import Detector, camera_model, hypotheses
 
 
 SIDES = ('left', 'right')
@@ -19,6 +19,39 @@ SIDES = ('left', 'right')
 
 class CalibrationError(ValueError):
     pass
+
+
+def redetect_measurements(root, measurements, config):
+    """Replace detections in memory only; lossless images and measurements stay intact."""
+    root = Path(root).resolve()
+    detector = Detector(config)
+    output = []
+    report = dict(detector=detector.description(), images=0, recorded_detections=0,
+                  redetected_detections=0, added_id_observations=0, lost_id_observations=0,
+                  methods={})
+    for measurement in measurements:
+        updated = dict(measurement, images=[])
+        for record in measurement['images']:
+            path = (root/record['path']).resolve()
+            if not path.is_relative_to(root):
+                raise CalibrationError('Image path escapes the measurement folder')
+            image = cv2.imread(str(path), cv2.IMREAD_COLOR)
+            if image is None:
+                raise CalibrationError(f'Cannot read original image: {record["path"]}')
+            detections = detector.detect(image, record['camera_info'])
+            updated['images'].append(dict(record, detections=detections, detector=detector.description()))
+            old = {d['id'] for d in record['detections']}
+            new = {d['id'] for d in detections}
+            report['images'] += 1
+            report['recorded_detections'] += len(record['detections'])
+            report['redetected_detections'] += len(detections)
+            report['added_id_observations'] += len(new-old)
+            report['lost_id_observations'] += len(old-new)
+            for detection in detections:
+                method = detection['detection_method']
+                report['methods'][method] = report['methods'].get(method, 0)+1
+        output.append(updated)
+    return output, report
 
 
 def observations(measurements, config):
@@ -207,9 +240,13 @@ def fit(config, obs, guesses, starts=4):
     return problem, best.x, report
 
 
-def solve_dataset(path, initial_guesses=None, starts=4):
+def solve_dataset(path, initial_guesses=None, starts=4, redetect=False):
     root, manifest, raw, measurements = load_dataset(path)
     config = validate(raw)
+    redetection = None
+    if redetect:
+        measurements, redetection = redetect_measurements(root, measurements, config)
+        write_json(root/'redetection_report.json', redetection)
     obs, frames = observations(measurements, config)
     coverage = check_coverage(obs, markers=marker_names(config))
     ids = sorted({o['waypoint'] for o in obs})
@@ -234,6 +271,8 @@ def solve_dataset(path, initial_guesses=None, starts=4):
                   notes=['Absolute height is conditioned on the supplied marker height.',
                          'PnP pose validation uses the image-best hypothesis; planar ambiguity may increase its error.',
                          'Residuals alone do not certify absolute accuracy of mocap or camera intrinsics.'])
+    if redetection is not None:
+        report['redetection'] = redetection
     # A converged solution with poor held-out reprojection remains an explicit draft.
     quality = ('validated' if validation['corner_error_px']['p95'] <= 3.0 and
                report['condition_number'] <= 1e6 else 'draft')
@@ -258,6 +297,8 @@ def main(argv=None):
     parser.add_argument('session_dir')
     parser.add_argument('--initial-guesses', help='YAML: left/right [x,y,z,qx,qy,qz,qw], or session config')
     parser.add_argument('--starts', type=int, default=4)
+    parser.add_argument('--redetect', action='store_true',
+                        help='Re-detect original lossless images with the current detector; preserve stored measurements')
     args = parser.parse_args(argv)
     guesses = None
     try:
@@ -266,7 +307,7 @@ def main(argv=None):
         if args.initial_guesses:
             guesses = yaml.safe_load(Path(args.initial_guesses).expanduser().read_text())
             guesses = guesses.get('camera_initial_guesses', guesses)
-        result = solve_dataset(args.session_dir, guesses, args.starts)
+        result = solve_dataset(args.session_dir, guesses, args.starts, redetect=args.redetect)
         print(json.dumps({'quality': result['quality'], 'validation': result['report']['validation'],
                           'output': str(Path(args.session_dir).expanduser()/'calibration.yaml')}, indent=2))
     except (ValueError, TypeError, OSError, KeyError, np.linalg.LinAlgError, cv2.error) as exc:
