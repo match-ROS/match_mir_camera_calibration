@@ -7,7 +7,9 @@ from pathlib import Path
 import queue
 import secrets
 import signal
-import socket
+import shutil
+import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -27,6 +29,7 @@ from std_srvs.srv import Trigger
 from .config import load
 from .controller import ACTIVE
 from .session_node import CalibrationSession, PREFIX
+from .qr import advertised_host, qr_image, terminal_qr
 from .web_server import make_server
 
 
@@ -137,6 +140,7 @@ def main(args=None):
     parser.add_argument('--config', default=str(Path(get_package_share_directory('match_mir_camera_calibration'))/'config/session.yaml'))
     parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8080)
+    parser.add_argument('--advertise-host', help='WLAN/LAN-IP oder Rechnername für den iPhone-QR-Code')
     parser.add_argument('--owner-token', default=uuid.uuid4().hex)
     options, ros_args = parser.parse_known_args(args)
     config = load(options.config)
@@ -151,6 +155,7 @@ def main(args=None):
     signal.signal(signal.SIGINT, terminate)
     signal.signal(signal.SIGTERM, terminate)
     session = bridge = server = executor = probe = None
+    qr_directory = None
     try:
         # Prevent two backends from responding to the same capture service.
         probe = rclpy.create_node('mir_calibration_web_startup')
@@ -165,9 +170,20 @@ def main(args=None):
         server = make_server(options.host, options.port, bridge, token)
         threading.Thread(target=server.serve_forever, daemon=True, name='calibration-http').start()
         port = server.server_address[1]
-        host = socket.gethostname() if options.host == '0.0.0.0' else options.host
-        print(f'\niPhone-Link: http://{host}:{port}/?token={token}\n'
-              'Bei Bedarf den Rechnernamen durch dessen WLAN/LAN-IP ersetzen.\n'
+        host = options.advertise_host or advertised_host(options.host, config['observer_robot'])
+        url = f'http://{host}:{port}/?token={token}'
+        session.web_url = url
+        qr_directory = Path(tempfile.mkdtemp(prefix='mir_calibration_qr_'))
+        image_path = qr_directory/'iphone.png'
+        if not cv2.imwrite(str(image_path), qr_image(url)):
+            raise OSError('QR-Code konnte nicht gespeichert werden.')
+        print('\niPhone-Webansicht: QR-Code mit der iPhone-Kamera scannen.', flush=True)
+        if sys.stdout.isatty():
+            print(terminal_qr(url), flush=True)
+        print(f'QR-Code als Bild: {image_path}\n'
+              f'Bild öffnen: xdg-open {image_path}\n'
+              'In der GUI: „iPhone-QR-Code“ drücken.\n'
+              f'Link als Alternative: {url}\n'
               'Manueller Modus: keine Fahrbefehle; neue Pose im Browser bestätigen.\n', flush=True)
         executor = SingleThreadedExecutor()
         executor.add_node(session)
@@ -186,6 +202,8 @@ def main(args=None):
                 node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+        if qr_directory:
+            shutil.rmtree(qr_directory)
 
 
 if __name__ == '__main__':

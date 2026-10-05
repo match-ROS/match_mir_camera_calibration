@@ -63,6 +63,14 @@ def test_gui_form_roundtrip_preserves_plan_edits_and_renders(config, monkeypatch
         module._status(accepted)
         assert module.pending_edit is None
         assert module.buttons['start'].isEnabled()
+        assert not module.buttons['qr'].isEnabled()
+        accepted['web_url'] = 'http://10.145.8.71:8080/?token=test-phone'
+        module._status(accepted)
+        assert module.buttons['qr'].isEnabled()
+        # The real modal dialog renders and closes; its nested event loop keeps
+        # the GUI heartbeat timer responsive while the phone scans the code.
+        QtCore.QTimer.singleShot(100, lambda: QtWidgets.QApplication.activeModalWidget().reject())
+        module.show_qr()
         module.top_view.config = config
         module.top_view.status = data
         canvas = QtGui.QPixmap(640, 480)

@@ -55,11 +55,15 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
    Eigene Einstellungen: `calibration_web --config /pfad/session.yaml`.
    Anderer Port: `--port 8081`. Vor dem Wechsel zwischen GUI und eigenständigem
    Webserver das vorige Backend beenden; es darf nur eines laufen.
-3. Den ausgegebenen **iPhone-Link** in Safari öffnen, einschließlich `?token=…`.
-   Die GUI schreibt ihn ins Prozesslog. iPhone und Rechner müssen einander im
-   WLAN/LAN erreichen können. Falls der Rechnername nicht aufgelöst wird, ihn
-   im Link durch die passende WLAN/LAN-IP des Rechners ersetzen (`hostname -I`).
-   Der Standardport ist **8080**; der Link gilt für diesen Serverstart.
+3. In der GUI **iPhone-QR-Code** drücken oder den QR-Code direkt im Terminal
+   mit der iPhone-Kamera scannen und den Link in Safari öffnen. Zusätzlich wird
+   der QR-Code als PNG gespeichert; der Startlog nennt den Pfad und den
+   passenden `xdg-open`-Befehl. Das Bild bleibt für die Laufzeit des Servers verfügbar.
+   Der vollständige Link inklusive Sitzungstoken ist im QR-Code enthalten.
+   iPhone und Rechner müssen einander im WLAN/LAN erreichen können. Die
+   LAN-Adresse wird automatisch gewählt; bei mehreren Netzwerken kann sie mit
+   `--advertise-host 10.145.8.71` vorgegeben werden (passende Rechner-IP einsetzen).
+   Der Standardport ist **8080**; der QR-Code gilt für diesen Serverstart.
 4. Bilder und Overlays prüfen: IDs **0 hinten links / 1 hinten rechts**, Dictionary
    `DICT_APRILTAG_36h11`, schwarze Quadratseite **0,16 m** und Höhenreferenz des
    linken Markermittelpunkts **0,58 m** sind bereits eingetragen. Die Kameraseite

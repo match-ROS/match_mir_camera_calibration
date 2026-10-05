@@ -28,6 +28,7 @@ from match_mur_gui.base_gui import MurBaseGui, MurGuiModule, setup_prefix
 from .config import validate
 from .controller import ACTIVE
 from .session_node import PREFIX
+from .qr import qr_image
 
 
 class RosMonitor(QtCore.QThread):
@@ -228,12 +229,13 @@ class CalibrationModule(MurGuiModule):
         for index, (label, action) in enumerate([('Backend laden', 'load'), ('Plan erzeugen', 'prepare'),
                               ('Kurze Stoppprüfung', 'verify'),
                               ('Start / Fortsetzen', 'start'), ('Pause', 'pause'),
-                              ('STOPP', 'stop'), ('Einzelaufnahme', 'capture')]):
+                              ('STOPP', 'stop'), ('Einzelaufnahme', 'capture'), ('iPhone-QR-Code', 'qr')]):
             button = QtWidgets.QPushButton(label)
             button.clicked.connect(lambda checked=False, a=action: self.action(a))
             buttons.addWidget(button, index//3, index % 3)
             self.buttons[action] = button
         self.buttons['stop'].setStyleSheet('background:#ad3333;color:white;font-weight:bold')
+        self.buttons['qr'].setEnabled(False)
         context.add_panel(self.panel)
         self.monitor = RosMonitor(self.owner)
         self.monitor.status.connect(self._status)
@@ -286,7 +288,7 @@ class CalibrationModule(MurGuiModule):
         self.fields['acquisition_mode'] = mode
         self.form.addRow('Aufnahmemodus (manual = Joystick + Web)', mode)
         self.form.addRow(QtWidgets.QLabel('Manuell: Backend laden startet auch die iPhone-Webansicht auf Port 8080.\n'
-                                          'Den vollständigen Sitzungslink aus dem Prozesslog öffnen.'))
+                                          'Danach „iPhone-QR-Code“ drücken und mit dem iPhone scannen.'))
         for name, label in [('rear_left', 'Marker hinten links'), ('rear_right', 'Marker hinten rechts')]:
             row = QtWidgets.QWidget()
             box = QtWidgets.QHBoxLayout(row)
@@ -477,6 +479,9 @@ class CalibrationModule(MurGuiModule):
         return path
 
     def action(self, action):
+        if action == 'qr':
+            self.show_qr()
+            return
         if action == 'load':
             try:
                 if self.other_owner:
@@ -492,6 +497,7 @@ class CalibrationModule(MurGuiModule):
                     if not process.waitForFinished(1500):
                         raise ValueError('Backend did not stop; configuration reload cancelled')
                 self.backend_status, self.plan_signature, self.backend_plan_signature = {}, None, None
+                self.buttons['qr'].setEnabled(False)
                 self.pending_edit = None
                 self.backend_config = config
                 self.top_view.config = config
@@ -502,7 +508,7 @@ class CalibrationModule(MurGuiModule):
                     command = setup_prefix() + 'exec python3 -m match_mir_camera_calibration.session_node --ros-args ' + \
                         '-p config_path:='+shlex.quote(path)+' -p owner_token:='+shlex.quote(self.owner)
                 self.context.start_process('mir_calibration_session', command)
-                self.status_label.setText('Backend startet; manuell: iPhone-Link im Prozesslog öffnen. '
+                self.status_label.setText('Backend startet; manuell: danach „iPhone-QR-Code“ drücken. '
                                           'Automatisch: Plan erzeugen und prüfen.')
             except (ValueError, OSError, KeyError, TypeError, yaml.YAMLError) as exc:
                 self._error(exc)
@@ -557,6 +563,7 @@ class CalibrationModule(MurGuiModule):
 
     def _status(self, data):
         self.backend_status, self.status_at = data, time.monotonic()
+        self.buttons['qr'].setEnabled(bool(data.get('web_url')))
         progress = (f"Gespeicherte Messposen: {data.get('measurements_saved', 0)}"
                     if data.get('acquisition_mode') == 'manual' else
                     f"Messpose {data['index']+1}/{len(data['plan'])}")
@@ -626,6 +633,33 @@ class CalibrationModule(MurGuiModule):
         if self.backend_status and now-self.status_at > 1.0:
             self.status_label.setText('Backend-Status fehlt — Sitzung prüfen, keine automatische Wiederaufnahme')
             self.buttons['start'].setEnabled(False)
+            self.buttons['qr'].setEnabled(False)
+
+    def show_qr(self):
+        url = self.backend_status.get('web_url')
+        if not url or time.monotonic()-self.status_at > 1.:
+            self._error('Zuerst das manuelle Backend laden und auf dessen Status warten.')
+            return
+        pixels = np.ascontiguousarray(qr_image(url))
+        image = QtGui.QImage(pixels.data, pixels.shape[1], pixels.shape[0], pixels.strides[0],
+                             QtGui.QImage.Format_Grayscale8).copy()
+        dialog = QtWidgets.QDialog(self.panel)
+        dialog.setWindowTitle('iPhone-Webansicht: QR-Code scannen')
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(QtWidgets.QLabel('Mit der iPhone-Kamera scannen und den Link öffnen.'))
+        label = QtWidgets.QLabel()
+        label.setPixmap(QtGui.QPixmap.fromImage(image))
+        label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(label)
+        link = QtWidgets.QLabel(url)
+        link.setWordWrap(True)
+        link.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(link)
+        close = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        close.rejected.connect(dialog.reject)
+        layout.addWidget(close)
+        dialog.exec_()
+        dialog.deleteLater()
 
     def _result(self, action, success, message):
         self.context.append_log(f'[calibration] {action}: {success} — {message}')

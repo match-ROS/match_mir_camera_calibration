@@ -443,6 +443,7 @@ class CalibrationSession(Node):
                 'motion_enabled': self.c['motion_enabled'],
                 'acquisition_mode': self.c['acquisition_mode'],
                 'target_robot': self.c['target_robot'], 'observer_robot': self.c['observer_robot'],
+                'web_url': getattr(self, 'web_url', None),
                 'measurements_saved': self.accepted_measurements(),
                 'mocap': {robot: {'age_sec': now-at, 'pose': values(t)} for robot, (t, at) in controller.poses.items()},
                 'cameras': {side: {key: v for key, v in info.items() if key != 'received_mono'}
