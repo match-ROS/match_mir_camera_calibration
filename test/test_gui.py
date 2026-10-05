@@ -88,11 +88,17 @@ def test_real_base_gui_starts_and_closes_without_hardware(tmp_path, monkeypatch)
     try:
         window.show()
         QTest.qWait(250)
-        assert window.selected_robots() == ['mur620a', 'mur620b']
+        assert window.selected_robots() == ['mur620a', 'mur620d']
         assert not window.arm_r.isChecked() and not window.arm_l.isChecked()
         assert window.mir_enabled_check.isChecked() and window.mir_camera_check.isChecked()
         assert not window.processes
         assert module.backend_config is None
+        settings = module._config()  # Manual defaults work with blank area/contour fields.
+        assert settings['acquisition_mode'] == 'manual' and settings['observer_robot'] == 'mur620d'
+        assert settings['bounds']['x_min'] is None
+        module._pulse()
+        assert not module.tabs.isTabEnabled(2)
+        assert all(not module.buttons[action].isEnabled() for action in ('prepare', 'start', 'verify'))
         assert window.grab().save(str(tmp_path/'gui.png'))
     finally:
         window.close()

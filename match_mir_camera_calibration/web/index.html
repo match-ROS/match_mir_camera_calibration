@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>MuR Markeraufnahme</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#101820;color:#e7edf3;font:16px system-ui,sans-serif;padding:18px;padding-bottom:calc(150px + env(safe-area-inset-bottom))}h1{font-size:23px;margin:0 0 8px}p{line-height:1.45}.muted{color:#aebdcb}.status,article{background:#1d2b38;border:1px solid #344654;border-radius:14px;padding:14px;margin-top:14px}.views{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px}article h2{font-size:18px;margin:0 0 10px}.camera{min-height:180px;background:#0b1117;display:flex;justify-content:center;border-radius:8px;overflow:hidden}.camera img{display:block;width:100%;max-height:60vh;object-fit:contain}.camera.stale{opacity:.35}.message{white-space:pre-wrap;overflow-wrap:anywhere}.controls{position:fixed;bottom:0;left:0;right:0;background:#101820ee;padding:12px 18px calc(12px + env(safe-area-inset-bottom));border-top:1px solid #344654;display:grid;gap:8px}button{font:600 17px system-ui;min-height:52px;border:0;border-radius:10px;background:#61c6aa;color:#09241d}button:disabled{opacity:.4}#cancel{background:#344654;color:#e7edf3;min-height:42px;font-size:15px}.good{color:#70d7ad}.bad{color:#f4ab85}small{display:block;margin-top:8px}#notice{margin-top:12px}
+</style>
+<style>
+@media(max-width:600px){.views{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}article{padding:8px}article h2{font-size:15px}.camera{min-height:120px}.camera img{max-height:38vh}#markers-left,#markers-right{font-size:11px}}
+</style>
+<h1>Manuelle Markeraufnahme</h1>
+<div class="muted" id="robots">MuR620a · Kamera-MuR620d</div>
+<p>Mit dem Joystick zur nächsten Pose fahren, loslassen und <b>Neue Pose aufnehmen</b> drücken. Beide Roboter bleiben während der Aufnahme stehen.</p>
+<div class="status" aria-live="polite"><b id="state">Verbindung wird aufgebaut …</b><div id="reason" class="message"></div><small id="health"></small><small id="progress"></small></div>
+<div class="views">
+<article><h2>Linke Kamera</h2><div class="camera stale" id="box-left"><img id="left" alt="Linkes Kamerabild mit Markerposition"></div><small id="markers-left" class="message"></small></article>
+<article><h2>Rechte Kamera</h2><div class="camera stale" id="box-right"><img id="right" alt="Rechtes Kamerabild mit Markerposition"></div><small id="markers-right" class="message"></small></article>
+</div>
+<p class="muted">Overlay: Marker-ID, Mittelpunkt XYZ in Metern im jeweiligen Kamera-Optical-Frame und Markerachsen. Die Position relativ zum Roboter wird anschließend offline kalibriert.</p>
+<div id="notice" role="status" class="message"></div><small id="dataset" class="muted message"></small>
+<div class="controls"><button id="capture" disabled>Neue Pose aufnehmen</button><button id="cancel">Aufnahme abbrechen</button></div>
+<script>
+'use strict';
+const token=new URLSearchParams(location.search).get('token')||'';
+const headers={'X-Session-Token':token};
+const el=id=>document.getElementById(id);
+let sending=false,requestBusy=false,live=true;
+const labels={IDLE:'Bereit',SETTLING:'Warte auf Stillstand …',CAPTURING:'Bilder werden gespeichert …',STOPPED:'Aufnahme beendet',FAULT:'Aufnahme abgelehnt',PAUSED:'Aufnahme pausiert'};
+async function request(path,options={},timeout=2000){const controller=new AbortController();const timer=setTimeout(()=>controller.abort(),timeout);try{return await fetch(path,{...options,signal:controller.signal});}finally{clearTimeout(timer);}}
+async function post(path){const response=await request(path,{method:'POST',headers,cache:'no-store'},6000);const data=await response.json();if(!response.ok||data.success===false)throw new Error(data.message||'Verbindung fehlgeschlagen');return data;}
+async function heartbeat(){if(document.hidden)return;try{await post('/api/heartbeat');}catch(e){el('notice').textContent=e.message;}}
+async function refresh(){if(requestBusy||document.hidden)return;requestBusy=true;try{
+ const response=await request('/api/status',{headers,cache:'no-store'});if(!response.ok)throw new Error('Sitzungslink oder Verbindung prüfen.');const data=await response.json();
+ live=!!data.backend_live;el('state').textContent=live?(labels[data.state]||data.state):'Aufnahmedienst nicht erreichbar';el('reason').textContent=data.reason||'';
+ el('robots').textContent=(data.target_robot||'mur620a')+' · Kamera '+(data.observer_robot||'mur620d');
+ el('health').textContent=Object.entries(data.mocap_live||{}).map(([robot,ok])=>robot+': Mocap '+(ok?'live':'fehlt/veraltet')).join(' · ');
+ el('health').className=Object.values(data.mocap_live||{}).every(Boolean)?'good':'bad';
+ const counts=data.counts||{};el('progress').textContent='Gespeicherte Messposen: '+(data.measurements_saved||0)+' · Bilder dieser Pose L/R: '+(counts.left||0)+'/'+(counts.right||0);
+ el('dataset').textContent=data.dataset?'Messordner: '+data.dataset:'';
+ el('capture').disabled=sending||!data.can_capture;
+ el('cancel').disabled=sending||!['SETTLING','CAPTURING'].includes(data.state);
+ for(const side of ['left','right']){const ok=live&&data.camera_live&&data.camera_live[side];el('box-'+side).classList.toggle('stale',!ok);if(ok){const img=el(side);if(!img.dataset.loading){img.dataset.loading='1';img.onload=img.onerror=()=>{delete img.dataset.loading;};img.src='/image/'+side+'.jpg?token='+encodeURIComponent(token)+'&t='+Date.now();}}
+ const markers=(data.marker_poses||{})[side]||[];el('markers-'+side).textContent=ok?(markers.length?markers.map(m=>{const xyz=m.pnp?m.pnp.transform.slice(0,3).map(v=>v.toFixed(3)).join(' / '):'PnP nicht verfügbar';return 'ID '+m.id+' · '+(m.marker==='rear_left'?'hinten links':'hinten rechts')+'\nXYZ: '+xyz+' m';}).join('\n'):'Kein konfigurierter Marker erkannt.'):'Kamerastream fehlt oder ist veraltet.';}
+ }catch(e){live=false;el('capture').disabled=true;el('cancel').disabled=true;el('state').textContent='Verbindung unterbrochen';el('notice').textContent=e.message;for(const side of ['left','right'])el('box-'+side).classList.add('stale');}finally{requestBusy=false;}}
+async function action(path){if(sending)return;sending=true;el('capture').disabled=true;el('cancel').disabled=true;try{await heartbeat();const data=await post(path);el('notice').textContent=path.endsWith('capture')?'Aufnahme angefordert. Joystick loslassen und beide Roboter stillhalten.':data.message;}catch(e){el('notice').textContent=e.message;}finally{sending=false;refresh();}}
+el('capture').onclick=()=>action('/api/capture');el('cancel').onclick=()=>action('/api/cancel');
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){heartbeat();refresh();}});
+heartbeat();refresh();setInterval(heartbeat,250);setInterval(refresh,400);
+</script>
+</html>

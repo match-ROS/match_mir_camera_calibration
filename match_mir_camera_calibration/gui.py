@@ -144,9 +144,10 @@ class TopView(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.fillRect(self.rect(), QtGui.QColor('#20252b'))
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
-        if not self.config:
+        if not self.config or any(value is None for value in self.config['bounds'].values()) or any(
+                self.config[key] is None for key in ('target_radius_m', 'observer_radius_m')):
             painter.setPen(QtCore.Qt.white)
-            painter.drawText(self.rect(), QtCore.Qt.AlignCenter, 'Bereich konfigurieren und Backend laden')
+            painter.drawText(self.rect(), QtCore.Qt.AlignCenter, 'Manuelle Aufnahme: Fahrt mit Joystick\nBereichsdraufsicht optional')
             return
         bounds = self.config['bounds']
         lo = np.array([bounds['x_min'], bounds['y_min']])
@@ -249,7 +250,7 @@ class CalibrationModule(MurGuiModule):
     def _base_defaults(self):
         window = self.context.window
         for robot, check in getattr(window, 'robot_checks', {}).items():
-            check.setChecked(robot in ('mur620a', 'mur620b'))
+            check.setChecked(robot in ('mur620a', 'mur620d'))
         for name, checked in [('mir_enabled_check', True), ('mir_camera_check', True),
                               ('arm_r', False), ('arm_l', False), ('opt_integrated', False),
                               ('opt_moveit', False), ('opt_ft', False)]:
@@ -280,6 +281,12 @@ class CalibrationModule(MurGuiModule):
         dictionary.addItems(sorted(name for name in dir(cv2.aruco) if name.startswith('DICT_')))
         self.fields['dictionary'] = dictionary
         self.form.addRow('ArUco-Dictionary (Print prüfen)', dictionary)
+        mode = QtWidgets.QComboBox()
+        mode.addItems(['manual', 'automatic'])
+        self.fields['acquisition_mode'] = mode
+        self.form.addRow('Aufnahmemodus (manual = Joystick + Web)', mode)
+        self.form.addRow(QtWidgets.QLabel('Manuell: Backend laden startet auch die iPhone-Webansicht auf Port 8080.\n'
+                                          'Den vollständigen Sitzungslink aus dem Prozesslog öffnen.'))
         for name, label in [('rear_left', 'Marker hinten links'), ('rear_right', 'Marker hinten rechts')]:
             row = QtWidgets.QWidget()
             box = QtWidgets.QHBoxLayout(row)
@@ -395,6 +402,7 @@ class CalibrationModule(MurGuiModule):
         self.editor.setPlainText(yaml.safe_dump(config, sort_keys=False))
         for key in ('target_robot', 'observer_robot', 'dictionary'):
             self.fields[key].setCurrentText(str(config[key]))
+        self.fields['acquisition_mode'].setCurrentText(config.get('acquisition_mode', 'automatic'))
         for marker in ('rear_left', 'rear_right'):
             for sub in ('id', 'length_m'):
                 v = config['markers'][marker][sub]
@@ -416,14 +424,17 @@ class CalibrationModule(MurGuiModule):
         config = yaml.safe_load(self.editor.toPlainText())
         for key in ('target_robot', 'observer_robot', 'dictionary'):
             config[key] = self.fields[key].currentText()
+        config['acquisition_mode'] = self.fields['acquisition_mode'].currentText()
         for marker in ('rear_left', 'rear_right'):
             config['markers'][marker]['id'] = int(self.fields[f'{marker}.id'].text())
             config['markers'][marker]['length_m'] = float(self.fields[f'{marker}.length_m'].text())
         config['height_anchor'] = {'marker': self.fields['anchor_marker'].currentText(), 'z_m': float(self.fields['anchor_z'].text())}
         for key in ('x_min', 'x_max', 'y_min', 'y_max'):
-            config['bounds'][key] = float(self.fields[key].text())
+            value = self.fields[key].text().strip()
+            config['bounds'][key] = float(value) if value else None
         for key in ('target_radius_m', 'observer_radius_m'):
-            config[key] = float(self.fields[key].text())
+            value = self.fields[key].text().strip()
+            config[key] = float(value) if value else None
         for key in ('nx', 'ny'):
             config['grid'][key] = self.fields[key].value()
         config['grid']['yaw_offsets_deg'] = [float(v.strip()) for v in self.fields['yaw_offsets'].text().split(',')]
@@ -484,10 +495,15 @@ class CalibrationModule(MurGuiModule):
                 self.pending_edit = None
                 self.backend_config = config
                 self.top_view.config = config
-                command = setup_prefix() + 'exec python3 -m match_mir_camera_calibration.session_node --ros-args ' + \
-                    '-p config_path:='+shlex.quote(path)+' -p owner_token:='+shlex.quote(self.owner)
+                if config['acquisition_mode'] == 'manual':
+                    command = setup_prefix() + 'exec python3 -m match_mir_camera_calibration.web ' + \
+                        '--config '+shlex.quote(path)+' --owner-token '+shlex.quote(self.owner)
+                else:
+                    command = setup_prefix() + 'exec python3 -m match_mir_camera_calibration.session_node --ros-args ' + \
+                        '-p config_path:='+shlex.quote(path)+' -p owner_token:='+shlex.quote(self.owner)
                 self.context.start_process('mir_calibration_session', command)
-                self.status_label.setText('Backend startet; danach Plan erzeugen oder Einzelaufnahme wählen')
+                self.status_label.setText('Backend startet; manuell: iPhone-Link im Prozesslog öffnen. '
+                                          'Automatisch: Plan erzeugen und prüfen.')
             except (ValueError, OSError, KeyError, TypeError, yaml.YAMLError) as exc:
                 self._error(exc)
             return
@@ -541,7 +557,10 @@ class CalibrationModule(MurGuiModule):
 
     def _status(self, data):
         self.backend_status, self.status_at = data, time.monotonic()
-        self.status_label.setText(f"{data['state']} · {data['reason']} · Messpose {data['index']+1}/{len(data['plan'])} · Bilder L/R {data['counts']}")
+        progress = (f"Gespeicherte Messposen: {data.get('measurements_saved', 0)}"
+                    if data.get('acquisition_mode') == 'manual' else
+                    f"Messpose {data['index']+1}/{len(data['plan'])}")
+        self.status_label.setText(f"{data['state']} · {data['reason']} · {progress} · Bilder L/R {data['counts']}")
         signature = [item['pose'] for item in data['plan']]
         if self.pending_edit is not None and len(signature) == len(self.pending_edit) and np.allclose(signature, self.pending_edit, rtol=0, atol=1e-8):
             self.pending_edit = None
@@ -562,20 +581,23 @@ class CalibrationModule(MurGuiModule):
         self.camera_status.setText(' · '.join(f"{side}: Alter {stats['age_sec']:.3f}s, Marker {data['detections'].get(side, [])}"
                                              for side, stats in data['cameras'].items()))
         active = data['state'] in ACTIVE
+        manual = data.get('acquisition_mode') == 'manual'
         self.table.setEnabled(not active)
         self.edit_button.setEnabled(not active)
         self.solve_button.setEnabled(not active)
         for action in ('load', 'prepare', 'capture'):
             self.buttons[action].setEnabled(not active)
-        self.buttons['start'].setEnabled(data['state'] in ('READY', 'PAUSED') and self.pending_edit is None)
+        self.buttons['prepare'].setEnabled(not active and not manual)
+        self.edit_button.setEnabled(not active and not manual)
+        self.buttons['start'].setEnabled(not manual and data['state'] in ('READY', 'PAUSED') and self.pending_edit is None)
         self.buttons['pause'].setEnabled(active)
-        self.buttons['verify'].setEnabled(data['state'] == 'READY' and self.pending_edit is None)
+        self.buttons['verify'].setEnabled(not manual and data['state'] == 'READY' and self.pending_edit is None)
         # Prevent the inherited GUI from introducing a second motion command.
         for button in self.context.window.findChildren(QtWidgets.QPushButton):
             if self.panel.isAncestorOf(button):
                 continue
             if button.text() not in ('Stop Managed Processes', 'Save GUI Log'):
-                if active and button.isEnabled():
+                if active and not manual and button.isEnabled():
                     button.setProperty('calibration_locked', True)
                     button.setEnabled(False)
                 elif not active and button.property('calibration_locked'):
@@ -592,6 +614,12 @@ class CalibrationModule(MurGuiModule):
 
     def _pulse(self):
         self.monitor.pulse()
+        manual = self.fields['acquisition_mode'].currentText() == 'manual'
+        self.tabs.setTabEnabled(2, not manual)
+        if manual:
+            for action in ('prepare', 'start', 'verify'):
+                self.buttons[action].setEnabled(False)
+            self.edit_button.setEnabled(False)
         robots = [self.fields[key].currentText() for key in ('target_robot', 'observer_robot')]
         now = time.monotonic()
         self.mocap_label.setText('Mocap: '+' · '.join(f'{r}: '+('live' if r in self.raw_poses and now-self.raw_poses[r][0] < 0.2 else 'fehlt/veraltet') for r in robots))
@@ -652,7 +680,7 @@ class CalibrationModule(MurGuiModule):
 def main():
     os.environ.setdefault('ROS_DOMAIN_ID', '62')
     # Override the shared GUI's C-only default for this two-robot application.
-    os.environ.setdefault('ROS_STATIC_PEERS', 'mur620a;mur620b')
+    os.environ.setdefault('ROS_STATIC_PEERS', 'mur620a;mur620d')
     signal.signal(signal.SIGINT, signal.SIG_DFL)
     app = QtWidgets.QApplication([])
     window = MurBaseGui(modules=[CalibrationModule()], window_title='MuR MiR Camera Calibration')

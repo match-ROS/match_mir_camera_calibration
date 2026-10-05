@@ -1,15 +1,20 @@
-# Measured marker lengths are prefilled; other required physical values remain blank.
+# Measured marker lengths and height are prefilled; remaining physical values are blank.
 # All lengths are metres; marker length includes the black frame, not the white margin.
 target_robot: mur620a
-observer_robot: mur620b
-dictionary: DICT_4X4_250  # Select the dictionary actually used by your printouts.
+observer_robot: mur620d
+acquisition_mode: manual  # Joystick driving; the recorder never publishes cmd_vel.
+preview_rotate_ccw: true  # MiR floor RGB cameras are mounted sideways.
+dictionary: DICT_APRILTAG_36h11  # Confirmed from the live images of the current markers.
 markers:
-  rear_left: {id: null, length_m: 0.16}
-  rear_right: {id: null, length_m: 0.16}
-height_anchor: {marker: rear_left, z_m: null}
-# Outer FREE floor rectangle in the Qualisys 'mocap' coordinate system.
+  rear_left: {id: 0, length_m: 0.16}
+  rear_right: {id: 1, length_m: 0.16}
+# Marker centre measured 0.58 m above the floor. In the MuR620 URDF,
+# base_footprint -> base_link is identity, so the base_link height is also 0.58 m.
+height_anchor: {marker: rear_left, z_m: 0.58}
+# Automatic driving only: outer FREE rectangle in Qualisys 'mocap' coordinates.
+# Optional for manual acquisition; the joystick operator controls the driving.
 bounds: {x_min: null, x_max: null, y_min: null, y_max: null}
-# Circumradii about base_link, including the complete stowed robot/arms.
+# Automatic driving: circumradii about base_link, including robot/stowed arms.
 target_radius_m: null
 observer_radius_m: null
 margin_m: 0.20

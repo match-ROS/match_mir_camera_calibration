@@ -78,8 +78,9 @@ class CalibrationSession(Node):
         self.watchdog_armed = threading.Event()
         self.watchdog_tripped = threading.Event()
         self.last_tick_mono = time.monotonic()
-        self.command_publisher = self.create_publisher(
+        self.command_publisher = (self.create_publisher(
             TwistStamped, f"/{self.c['target_robot']}/cmd_vel_stamped", 1)
+            if self.c['acquisition_mode'] == 'automatic' else None)
         qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.status_publisher = self.create_publisher(String, PREFIX+'/status', qos)
         self.preview_publishers = {side: self.create_publisher(Image, PREFIX+f'/preview/{side}', qos_profile_sensor_data)
@@ -101,7 +102,9 @@ class CalibrationSession(Node):
         self.create_timer(0.2, self._status)
         self.watchdog = threading.Thread(target=self._guard, name='calibration-command-watchdog', daemon=True)
         self.watchdog.start()
-        self.get_logger().info('Session loaded. Motion is idle; prepare/preview before Start.')
+        self.get_logger().info('Manual acquisition loaded: no cmd_vel publisher; use stationary capture.'
+                               if self.command_publisher is None else
+                               'Session loaded. Motion is idle; prepare/preview before Start.')
 
     def _heartbeat(self, msg):
         if msg.data == self.owner:
@@ -157,8 +160,6 @@ class CalibrationSession(Node):
             return
         if self.busy[side]:
             return
-        if any(robot not in self.controller.poses for robot in self.controller.history):
-            return
         self.busy[side] = True
         poses = {robot: values(item[0]) for robot, item in self.controller.poses.items()}
         headers = {robot: dict(header) for robot, header in self.raw_headers.items()}
@@ -179,13 +180,13 @@ class CalibrationSession(Node):
     def _decode(self, side, msg, info, poses, headers, received_at, received_mono, capture_id):
         image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         detections = self.detectors[side].detect(image, info)
-        overlay = self.detectors[side].overlay(image, detections)
+        overlay = self.detectors[side].overlay(image, detections, info, self.c['preview_rotate_ccw'])
         record = {'camera': side, 'frame_id': msg.header.frame_id,
                   'stamp': stamp_seconds(msg.header.stamp), 'received_at': received_at,
                   'source_encoding': msg.encoding, 'camera_info': info,
-                  'pose_a': poses[self.c['target_robot']], 'pose_b': poses[self.c['observer_robot']],
-                  'pose_a_header': headers[self.c['target_robot']],
-                  'pose_b_header': headers[self.c['observer_robot']], 'detections': detections}
+                  'pose_a': poses.get(self.c['target_robot']), 'pose_b': poses.get(self.c['observer_robot']),
+                  'pose_a_header': headers.get(self.c['target_robot']),
+                  'pose_b_header': headers.get(self.c['observer_robot']), 'detections': detections}
         return image, overlay, record, received_mono, capture_id
 
     def _reject(self, reason):
@@ -249,8 +250,11 @@ class CalibrationSession(Node):
     def _service(self, action, request, response):
         del request
         now = time.monotonic()
+        active_before = self.controller.state in ACTIVE
         try:
             self._health()
+            if action in ('prepare', 'verify', 'start'):
+                self.controller._require_automatic()
             if action == 'prepare':
                 self.controller.prepare(now, self.waypoints)
             elif action == 'verify':
@@ -298,7 +302,7 @@ class CalibrationSession(Node):
         except (ValueError, OSError) as exc:
             response.success, response.message = False, str(exc)
             # A failed action must never leave a started controller running.
-            if self.controller.state in ACTIVE:
+            if self.controller.state in ACTIVE and not active_before:
                 self.controller.stop(str(exc), 'FAULT')
                 self._zero()
         self._status()
@@ -317,6 +321,8 @@ class CalibrationSession(Node):
         self._status()
 
     def _command(self, linear, angular):
+        if self.command_publisher is None:
+            return
         msg = TwistStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = f"{self.c['target_robot']}/base_link"
@@ -399,6 +405,9 @@ class CalibrationSession(Node):
             # queued in THIS burst, with fresh raw poses at receipt can enter it.
             if capture_id != self.dataset.pending['id'] or record['stamp'] <= self.capture_started or received_mono < self.capture_mono:
                 continue
+            if any(record[f'pose_{letter}_header'] is None for letter in ('a', 'b')):
+                self._reject('Raw pose pairing is missing; burst rejected')
+                continue
             pose_ages = [record['received_at']-record[f'pose_{letter}_header']['received_at'] for letter in ('a', 'b')]
             if any(not 0 <= age <= self.c['mocap_timeout_sec'] for age in pose_ages):
                 self._reject('Raw pose pairing is stale; burst rejected')
@@ -432,11 +441,21 @@ class CalibrationSession(Node):
                 'index': controller.index, 'plan': controller.plan, 'counts': self.counts,
                 'dataset': str(self.dataset.path) if self.dataset else None,
                 'motion_enabled': self.c['motion_enabled'],
+                'acquisition_mode': self.c['acquisition_mode'],
+                'target_robot': self.c['target_robot'], 'observer_robot': self.c['observer_robot'],
+                'measurements_saved': self.accepted_measurements(),
                 'mocap': {robot: {'age_sec': now-at, 'pose': values(t)} for robot, (t, at) in controller.poses.items()},
                 'cameras': {side: {key: v for key, v in info.items() if key != 'received_mono'}
                             for side, info in self.camera_seen.items()},
-                'detections': {side: [d['marker'] for d in record['detections']] for side, record in self.images.items()}}
+                'detections': {side: [d['marker'] for d in record['detections']] for side, record in self.images.items()},
+                'marker_poses': {side: [{'marker': d['marker'], 'id': d['id'],
+                                       'optical_frame': record['frame_id'],
+                                       'pnp': d['pnp_candidates'][0] if d['pnp_candidates'] else None}
+                                      for d in record['detections']] for side, record in self.images.items()}}
         self.status_publisher.publish(String(data=json.dumps(data, allow_nan=False)))
+
+    def accepted_measurements(self):
+        return self.dataset.accepted_count if self.dataset else 0
 
     def destroy_node(self):
         self.controller.stop('Node shutdown')

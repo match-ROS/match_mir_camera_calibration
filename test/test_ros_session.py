@@ -2,6 +2,9 @@
 import json
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
+import threading
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pytest
@@ -22,21 +25,36 @@ from std_srvs.srv import Trigger
 
 from match_mir_camera_calibration.dataset import load_dataset
 from match_mir_camera_calibration.session_node import CalibrationSession, PREFIX
+from match_mir_camera_calibration.web import BrowserBridge
+from match_mir_camera_calibration.web_server import make_server
 
 
-def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_path, monkeypatch):
+@pytest.mark.parametrize('mode', ['automatic', 'manual'])
+def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_path, monkeypatch, mode):
     monkeypatch.setenv('ROS_LOG_DIR', str(tmp_path/'ros_logs'))
     config['target_robot'], config['observer_robot'] = 'calibration_test_a', 'calibration_test_b'
+    config['acquisition_mode'] = mode
+    if mode == 'manual':
+        config['bounds'] = dict.fromkeys(config['bounds'])
+        config['target_radius_m'] = config['observer_radius_m'] = None
     path = tmp_path/'settings.yaml'
     path.write_text(yaml.safe_dump(config))
     rclpy.init(args=['--ros-args', '-p', f'config_path:={path}', '-p', 'owner_token:=test_owner'])
     session, feeder, executor = None, None, None
+    web = server = http_pool = server_thread = None
     try:
         session = CalibrationSession()
         feeder = rclpy.create_node('calibration_test_feeder')
         executor = SingleThreadedExecutor()
         executor.add_node(session)
         executor.add_node(feeder)
+        if mode == 'manual':
+            web = BrowserBridge('test_owner', config)
+            executor.add_node(web)
+            server = make_server('127.0.0.1', 0, web, 'test-phone')
+            server_thread = threading.Thread(target=server.serve_forever)
+            server_thread.start()
+            http_pool = ThreadPoolExecutor(max_workers=1)
         poses = {r: feeder.create_publisher(PoseStamped, f'/qualisys/{r}/pose', 100)
                  for r in (config['target_robot'], config['observer_robot'])}
         states = {r: feeder.create_publisher(RobotState, f'/{r}/robot_state', 10) for r in poses}
@@ -56,6 +74,8 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
         marker = cv2.aruco.drawMarker(dictionary, 7, 180) if hasattr(cv2.aruco, 'drawMarker') else cv2.aruco.generateImageMarker(dictionary, 7, 180)
         pixel[140:320, 230:410] = marker[..., None]
         def publish_poses():
+            if not feed_poses['enabled']:
+                return
             for robot, publisher in poses.items():
                 msg = PoseStamped()
                 msg.header.frame_id = 'mocap'
@@ -66,7 +86,8 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
         def publish_state():
             for pub in states.values():
                 pub.publish(RobotState(robot_state=3))
-            heart.publish(String(data='test_owner'))
+            if mode == 'automatic':
+                heart.publish(String(data='test_owner'))
         def publish_images():
             for side in images:
                 stamp = feeder.get_clock().now().to_msg()
@@ -81,12 +102,15 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
                 msg = bridge.cv2_to_imgmsg(pixel, encoding='bgr8')
                 msg.header.stamp, msg.header.frame_id = stamp, frame
                 images[side].publish(msg)
+        feed_poses = {'enabled': mode != 'manual'}
         feeder.create_timer(.01, publish_poses)
         feeder.create_timer(.1, publish_state)
         feeder.create_timer(.5, publish_images)
         def spin_until(condition, timeout=12.):
             deadline = time.monotonic()+timeout
             while time.monotonic() < deadline:
+                if web:
+                    web.heartbeat()
                 executor.spin_once(timeout_sec=.01)
                 if condition():
                     return
@@ -97,15 +121,40 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
             future = client.call_async(Trigger.Request())
             spin_until(future.done, 3.)
             return future.result()
+        if mode == 'manual':
+            spin_until(lambda: len(session.images) == 2)
+            assert not session.controller.poses
+            assert all(session.images[s]['detections'][0]['id'] == 7 for s in ('left', 'right'))
+            assert session.command_publisher is None
+            # A joystick publisher may coexist with the recorder.
+            joystick = feeder.create_publisher(TwistStamped, '/calibration_test_a/cmd_vel_stamped', 1)
+            feed_poses['enabled'] = True
         spin_until(lambda: len(session.images) == 2 and len(session.controller.poses) == 2)
-        assert call('prepare').success
+        assert call('prepare').success == (mode == 'automatic')
         reply = call('start')
-        assert not reply.success and 'motion_enabled' in reply.message
-        assert call('capture').success
+        assert not reply.success and ('motion_enabled' if mode == 'automatic' else 'Manual acquisition') in reply.message
+        if web:
+            spin_until(lambda: web.snapshot()['can_capture'])
+            assert web.jpeg('left') is not None
+            def phone_capture():
+                req = Request(f'http://127.0.0.1:{server.server_port}/api/capture',
+                              method='POST', headers={'X-Session-Token': 'test-phone'})
+                with urlopen(req, timeout=5.) as response:
+                    return json.loads(response.read())
+            future = http_pool.submit(phone_capture)
+            spin_until(future.done, 5.)
+            assert future.result()['success']
+        else:
+            assert call('capture').success
+        if mode == 'manual':
+            assert not call('capture').success  # Repeated taps must not cancel the first capture.
+            assert session.controller.state in ('SETTLING', 'CAPTURING')
         spin_until(lambda: session.controller.state == 'STOPPED' and session.dataset is not None and session.dataset.count == 1)
         _, _, _, measurements = load_dataset(session.dataset.path)
         assert len(measurements) == 1
         assert len(measurements[0]['images']) == 10
+        if web:
+            spin_until(lambda: web.snapshot().get('measurements_saved') == 1)
         assert all(image['detections'][0]['id'] == 7 for image in measurements[0]['images'])
         image = cv2.imread(str(session.dataset.path/measurements[0]['images'][0]['path']))
         assert np.array_equal(image, pixel)
@@ -126,8 +175,16 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
         time.sleep(.3)
         assert session.watchdog_tripped.is_set()
         spin_until(lambda: session.controller.state == 'FAULT')
-        assert commands and all(v == 0. and w == 0. for v, w in commands)
+        assert (commands and all(v == 0. and w == 0. for v, w in commands)) if mode == 'automatic' else not commands
     finally:
+        if server:
+            server.shutdown()
+            server.server_close()
+            server_thread.join()
+        if http_pool:
+            http_pool.shutdown()
+        if web:
+            web.destroy_node()
         if session:
             session.destroy_node()
         if feeder:

@@ -34,6 +34,10 @@ class SessionController:
         self.manual_capture = False
         self.verification_mode = False
 
+    def _require_automatic(self):
+        if self.c.get('acquisition_mode', 'automatic') == 'manual':
+            raise ValueError('Manual acquisition: automatic planning/driving is disabled')
+
     def observe(self, robot, t, now):
         if robot not in self.history:
             return
@@ -49,6 +53,7 @@ class SessionController:
                 raise ValueError(f'Raw mocap stale or missing: {robot}')
 
     def prepare(self, now, waypoints=None):
+        self._require_automatic()
         if self.state in ACTIVE:
             raise ValueError('Pause or stop before changing the plan')
         self._fresh(now)
@@ -76,13 +81,14 @@ class SessionController:
                     raise ValueError(f'Motion locked: {key} is false')
         a = self.poses[self.c['target_robot']][0]
         b = self.poses[self.c['observer_robot']][0]
-        if not self.planner or not self.planner.safe(a[:2, 3]):
+        if self.c.get('acquisition_mode', 'automatic') != 'manual' and (not self.planner or not self.planner.safe(a[:2, 3])):
             raise ValueError('Target envelope violates safe area or observer distance')
         translation, rotation = distance(b, self.observer_reference)
         if translation > self.c['observer_translation_tolerance_m'] or rotation > math.radians(self.c['observer_rotation_tolerance_deg']):
             raise ValueError('Observer moved; prepare a new plan')
 
     def start(self, now, verification=False):
+        self._require_automatic()
         if self.state not in {'READY', 'PAUSED'} or not self.plan:
             raise ValueError('Prepare a plan before starting')
         self.verification_mode = verification
@@ -107,7 +113,8 @@ class SessionController:
         self._fresh(now)
         a = self.poses[self.c['target_robot']][0]
         b = self.poses[self.c['observer_robot']][0]
-        self.planner = Planner(self.c, b[:2, 3])
+        self.planner = (None if self.c.get('acquisition_mode', 'automatic') == 'manual'
+                        else Planner(self.c, b[:2, 3]))
         self.observer_reference = b.copy()
         self._safety(now)
         self.manual_capture = True
@@ -160,7 +167,7 @@ class SessionController:
             return self.command
         if self.state in {'SETTLING', 'CAPTURING'}:
             self.command = (0.0, 0.0)
-            if self.state == 'SETTLING' and self.stable(now):
+            if self.state == 'SETTLING' and now-self.segment_started >= self.c['settle_sec'] and self.stable(now):
                 self.state, self.reason = 'CAPTURING', 'Recording new camera frames'
                 self.capture_ready = True
             elif self.state == 'CAPTURING' and not self.stable(now):

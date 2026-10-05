@@ -13,6 +13,9 @@ from match_mir_camera_calibration.geometry import transform
 @pytest.fixture
 def config(tmp_path):
     c = yaml.safe_load((Path(__file__).parents[1]/'config/session.yaml').read_text())
+    c['acquisition_mode'] = 'automatic'
+    c['dictionary'] = 'DICT_4X4_250'
+    c['observer_robot'] = 'mur620b'
     c['markers'] = {'rear_left': {'id': 7, 'length_m': 0.10}, 'rear_right': {'id': 8, 'length_m': 0.10}}
     c['height_anchor']['z_m'] = 0.32
     c['bounds'] = {'x_min': -4., 'x_max': 4., 'y_min': -4., 'y_max': 4.}

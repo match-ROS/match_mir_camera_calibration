@@ -25,6 +25,13 @@ def validate(raw):
         raise ConfigurationError('Configuration must be a YAML mapping')
     c = deepcopy(raw)
     try:
+        mode = c.setdefault('acquisition_mode', 'automatic')
+        if mode not in ('manual', 'automatic'):
+            raise ConfigurationError('acquisition_mode must be manual or automatic')
+        if mode == 'manual' and c['motion_enabled']:
+            raise ConfigurationError('Manual acquisition requires motion_enabled: false')
+        if not isinstance(c.setdefault('preview_rotate_ccw', False), bool):
+            raise ConfigurationError('preview_rotate_ccw must be boolean')
         for key in ('target_robot', 'observer_robot'):
             if not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', str(c[key])):
                 raise ConfigurationError(f'{key}: invalid robot namespace')
@@ -49,9 +56,11 @@ def validate(raw):
             raise ConfigurationError('height_anchor.marker must identify a configured marker')
         number(c['height_anchor']['z_m'], 'height_anchor.z_m', -1.0, 3.0)
         b = c['bounds']
+        optional_bounds = mode == 'manual' and all(b[key] is None for key in ('x_min', 'x_max', 'y_min', 'y_max'))
         for key in ('x_min', 'x_max', 'y_min', 'y_max'):
-            b[key] = number(b[key], f'bounds.{key}')
-        if b['x_min'] >= b['x_max'] or b['y_min'] >= b['y_max']:
+            if not optional_bounds:
+                b[key] = number(b[key], f'bounds.{key}')
+        if not optional_bounds and (b['x_min'] >= b['x_max'] or b['y_min'] >= b['y_max']):
             raise ConfigurationError('Bounds must describe a nonempty rectangle')
         limits = {
             'target_radius_m': (0.1, 5.0), 'observer_radius_m': (0.1, 5.0),
@@ -68,6 +77,8 @@ def validate(raw):
             'capture_timeout_sec': (5.0, 120.0), 'segment_timeout_sec': (10.0, 600.0),
         }
         for key, (low, high) in limits.items():
+            if mode == 'manual' and key in ('target_radius_m', 'observer_radius_m') and c[key] is None:
+                continue
             c[key] = number(c[key], key, low, high)
         for key in ('motion_enabled', 'boundary_verified', 'exclusive_control_confirmed', 'arms_stowed_confirmed'):
             if not isinstance(c[key], bool):

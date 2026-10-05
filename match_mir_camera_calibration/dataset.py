@@ -32,6 +32,7 @@ class Dataset:
         self.pose_log = (self.path/'poses.jsonl').open('a', buffering=1)
         self.event_log = (self.path/'events.jsonl').open('a', buffering=1)
         self.count = 0
+        self.accepted_count = 0
         self.pending = None
 
     def pose(self, record):
@@ -65,6 +66,8 @@ class Dataset:
             return
         self.pending.update(accepted=bool(accepted), reason=reason, finished_at=finished_at)
         write_json(self.path/'measurements'/self.pending['id']/'measurement.json', self.pending)
+        if accepted:
+            self.accepted_count += 1
         self.pending = None
 
     def close(self):

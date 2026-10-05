@@ -80,12 +80,31 @@ class Detector:
         return detections
 
     @staticmethod
-    def overlay(image, detections):
+    def overlay(image, detections, info=None, rotate_ccw=False):
         result = image.copy()
         for item in detections:
             corners = np.asarray(item['corners'], np.int32)
             cv2.polylines(result, [corners], True, (0, 255, 0), 2)
-            x, y = corners[0]
-            cv2.putText(result, f"{item['marker']} ({item['id']})", (int(x), max(15, int(y)-8)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
+            if info and item['pnp_candidates']:
+                from .geometry import transform
+                pose = transform(item['pnp_candidates'][0]['transform'])
+                k, d = camera_model(info)
+                cv2.drawFrameAxes(result, k, d, cv2.Rodrigues(pose[:3, :3])[0], pose[:3, 3], 0.04, 2)
+        if rotate_ccw:
+            result = cv2.rotate(result, cv2.ROTATE_90_COUNTERCLOCKWISE)
+        for item in detections:
+            corners = np.asarray(item['corners'], float)
+            if rotate_ccw:
+                corners = np.column_stack((corners[:, 1], image.shape[1]-1-corners[:, 0]))
+            x = int(np.clip(corners[:, 0].min(), 0, max(0, result.shape[1]-225)))
+            y = max(16, int(corners[:, 1].min())-25)
+            label = 'hinten links' if item['marker'] == 'rear_left' else 'hinten rechts'
+            lines = [f"ID {item['id']} {label}"]
+            if item['pnp_candidates']:
+                xyz = item['pnp_candidates'][0]['transform'][:3]
+                lines.append('XYZ ' + '/'.join(f'{v:.2f}' for v in xyz) + ' m')
+            for offset, line in enumerate(lines):
+                point = (x, min(result.shape[0]-4, y+offset*16))
+                cv2.putText(result, line, point, cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 0, 0), 3)
+                cv2.putText(result, line, point, cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 255, 0), 1)
         return result
