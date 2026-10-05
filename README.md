@@ -40,7 +40,8 @@ Für andere Rollen/Rechnernamen die Discovery-Peers vor dem Start anpassen.
 1. MuR620d abstellen und mit den Kameras auf die hinteren Marker der A ausrichten.
    Hardware/Kamera-Bridge für A und D sowie die vorhandene Mocap-Bridge starten.
    Benötigt werden beide RGB-Streams mit `CameraInfo`, rohe Posen unter
-   `/qualisys/mur620a/pose` und `/qualisys/mur620d/pose` sowie beide `robot_state`-Topics.
+   `/qualisys/mur620a/pose` und `/qualisys/mur620d/pose`. MiR-`robot_state`-Topics
+   werden für manuelle Aufnahmen nicht benötigt.
 2. In der GUI den Modus **manual** lassen und **Backend laden** drücken.
    Das startet Recorder und Webserver zusammen. Alternativ ohne Desktop-GUI:
 
@@ -178,8 +179,11 @@ zentrierte Quadratkonvention mit den detektierten Ecken
 Der unabhängige Sitzungsnode arbeitet mit 20 Hz und verwendet ausschließlich
 `/qualisys/<robot>/pose` im Frame `mocap`, einschließlich z/roll/pitch.
 Geglättete, Map- und eingefrorene Lokalisierungsposen werden nicht abonniert.
-Frische `/<robot>/robot_state`-Meldungen müssen READY, PAUSE oder MANUALCONTROL
-melden. Andere oder fehlende Zustände sperren die Aufnahme und automatische Fahrt.
+Im automatischen Modus müssen frische `/<robot>/robot_state`-Meldungen READY,
+PAUSE oder MANUALCONTROL melden. Andere oder fehlende Zustände sperren diese
+Sitzung. Im manuellen Modus wird `robot_state` weder abonniert noch verlangt:
+frische rohe Mocap-Posen, Stillstand, gültige Bilder und der Bedien-Heartbeat
+prüfen die Messaufnahme; der Recorder steuert keine Fahrt.
 
 Vor jedem Bildblock müssen beide Roboter zwei Sekunden stabil stehen.
 Erst danach belichtete Bilder dürfen in den aktuellen Block gelangen.
@@ -305,7 +309,8 @@ ROS_STATIC_PEERS='' QT_QPA_PLATFORM=offscreen python3 -m pytest -q
 
 ROS-Tests verwenden nur `calibration_test_a/b` auf localhost, ohne Hardware-Bridge.
 Sie prüfen auch die Web-Aufnahme über HTTP und ROS bis zum Messordner,
-Vorschau ohne Mocap und Koexistenz mit einem Joystick-Publisher. Im manuellen
+Vorschau ohne Mocap, Aufnahme ohne jegliche `robot_state`-Publisher und
+Koexistenz mit einem Joystick-Publisher. Im manuellen
 Modus wird kein Fahrpublisher angelegt und kein Fahrbefehl gesendet.
 Die HTTP-Tests prüfen Kamerabilder, Capture/Cancel, Sitzungslink und gesperrte Fahraktionen.
 Weitere Tests decken verrauschte Rekonstruktion, Höhenreferenz, fehlende Anregung,

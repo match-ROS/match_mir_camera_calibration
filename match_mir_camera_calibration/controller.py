@@ -71,7 +71,7 @@ class SessionController:
         self._fresh(now)
         if not 0 <= now-self.heartbeat_at <= self.c['heartbeat_timeout_sec']:
             raise ValueError('GUI heartbeat lost')
-        if not self.health_ok:
+        if self.c.get('acquisition_mode', 'automatic') == 'automatic' and not self.health_ok:
             raise ValueError(self.health_reason)
         if require_motion:
             for key in ('motion_enabled', 'boundary_verified', 'exclusive_control_confirmed', 'arms_stowed_confirmed'):

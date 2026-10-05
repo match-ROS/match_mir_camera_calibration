@@ -10,7 +10,9 @@ import numpy as np
 import pytest
 import yaml
 
-os.environ.setdefault('ROS_DOMAIN_ID', '182')
+# Always isolate the fixed service names from a live calibration backend,
+# even when a sourced shell already exports the hardware domain (62).
+os.environ['ROS_DOMAIN_ID'] = '182'
 os.environ['ROS_AUTOMATIC_DISCOVERY_RANGE'] = 'LOCALHOST'
 os.environ['ROS_STATIC_PEERS'] = ''
 rclpy = pytest.importorskip('rclpy')
@@ -57,7 +59,8 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
             http_pool = ThreadPoolExecutor(max_workers=1)
         poses = {r: feeder.create_publisher(PoseStamped, f'/qualisys/{r}/pose', 100)
                  for r in (config['target_robot'], config['observer_robot'])}
-        states = {r: feeder.create_publisher(RobotState, f'/{r}/robot_state', 10) for r in poses}
+        states = ({r: feeder.create_publisher(RobotState, f'/{r}/robot_state', 10) for r in poses}
+                  if mode == 'automatic' else {})
         heart = feeder.create_publisher(String, PREFIX+'/heartbeat', 1)
         images, infos = {}, {}
         commands = []
@@ -124,6 +127,7 @@ def test_ros_capture_lossless_frames_clock_rejection_and_no_motion(config, tmp_p
         if mode == 'manual':
             spin_until(lambda: len(session.images) == 2)
             assert not session.controller.poses
+            assert not states and not session.robot_states
             assert all(session.images[s]['detections'][0]['id'] == 7 for s in ('left', 'right'))
             assert session.command_publisher is None
             # A joystick publisher may coexist with the recorder.

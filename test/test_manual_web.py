@@ -37,9 +37,11 @@ def test_manual_defaults_capture_without_planner_and_reject_motion():
     for action in (controller.prepare, controller.start):
         with pytest.raises(ValueError, match='Manual acquisition'):
             action(0.)
+    controller.health_ok = False  # No MiR robot_state is needed for a manual measurement.
     controller.capture(0.)
     for at in np.arange(.01, 2.1, .01):
         observe(controller, at)
+        controller.health_ok = False
         assert controller.tick(at) == (0., 0.)
     assert controller.state == 'CAPTURING'
     controller.capture_finished(2.1)

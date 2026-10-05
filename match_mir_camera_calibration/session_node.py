@@ -89,7 +89,8 @@ class CalibrationSession(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
         for robot in (self.c['target_robot'], self.c['observer_robot']):
             self.create_subscription(PoseStamped, f'/qualisys/{robot}/pose', partial(self._pose, robot), 100)
-            self.create_subscription(RobotState, f'/{robot}/robot_state', partial(self._robot_state, robot), 10)
+            if self.c['acquisition_mode'] == 'automatic':
+                self.create_subscription(RobotState, f'/{robot}/robot_state', partial(self._robot_state, robot), 10)
         for side in ('left', 'right'):
             base = f"/{self.c['observer_robot']}/camera_floor_{side}/driver/color"
             self.create_subscription(CameraInfo, base+'/camera_info', partial(self._info, side), qos_profile_sensor_data)
@@ -195,6 +196,12 @@ class CalibrationSession(Node):
             self.controller.stop(reason, 'FAULT')
 
     def _health(self):
+        if self.c['acquisition_mode'] == 'manual':
+            # This recorder never commands motion. Fresh raw poses and the
+            # stillness/burst guards determine whether measurement is valid.
+            self.controller.health_ok = True
+            self.controller.health_reason = ''
+            return
         now = time.monotonic()
         for robot in self.controller.history:
             at, state = self.robot_states.get(robot, (-math.inf, -1))
